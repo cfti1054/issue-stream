@@ -1,0 +1,37 @@
+# 선택 사항. 기본 구성은 SQLite(data/issue_stream.db)라 Docker 가 필요 없다.
+#
+# PostgreSQL 을 쓰고 싶을 때:
+#   docker compose --profile postgres up -d
+#   pip install -e ".[postgres]"
+#   .env 에 DATABASE_URL=postgresql+psycopg://issue:issue@localhost:5432/issue_stream
+# 로컬 LLM 요약(ollama, 무료)을 쓸 때:
+#   docker compose --profile llm up -d
+services:
+  db:
+    image: postgres:16
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: issue
+      POSTGRES_PASSWORD: issue
+      POSTGRES_DB: issue_stream
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U issue -d issue_stream"]
+      interval: 10s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  ollama:

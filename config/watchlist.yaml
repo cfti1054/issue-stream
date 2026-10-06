@@ -1,0 +1,19 @@
+# 관심종목. holding: true 면 중요도 점수에 가산점.
+# aliases: 기사에서 이 종목을 가리키는 다른 표현 (긴 이름부터 매칭하므로 순서 무관)
+watchlist:
+  - code: "005930"
+    name: 삼성전자
+    aliases: ["삼전", "Samsung Electronics"]
+    holding: true
+  - code: "000660"
+    name: SK하이닉스
+    aliases: ["하이닉스", "SK hynix"]
+    holding: false
+  - code: "005380"
+    name: 현대차
+    aliases: ["현대자동차", "Hyundai Motor"]
+    holding: false
+  - code: "000720"
+    name: 현대건설
+    aliases: []
+    holding: false

@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "issue-stream"
+version = "0.2.0"
+description = "뉴스·공시·시세를 이슈 단위로 묶어 요약하는 개인용 시장 대시보드"
+requires-python = ">=3.11"
+dependencies = [
+    # 설정·스키마
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    # DB (기본 SQLite 는 파이썬 내장이라 설치할 것이 없다)
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    # 수집
+    "httpx>=0.27",
+    "feedparser>=6.0",
+    # 시세: 네이버 모바일 API(httpx) → 야후(yfinance) → FinanceDataReader 순으로 시도
+    "yfinance>=0.2.50",
+    "finance-datareader>=0.9.90",
+    # 휴장일 캘린더
+    "exchange-calendars>=4.5",
+    # 수치 계산
+    "numpy>=1.26",
+    # API·스케줄러
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "apscheduler>=3.10,<4",
+]
+
+[project.optional-dependencies]
+# PostgreSQL 을 쓸 때만 (DATABASE_URL=postgresql+psycopg://...)
+postgres = [
+    "psycopg[binary]>=3.1",
+]
+# 무료 로컬 모델 (임베딩·감성). 용량이 커서 분리. 1단계에서는 불필요.
+ml = [
+    "sentence-transformers>=2.7",
+    "transformers>=4.40",
+    "torch>=2.2",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+# 유료 API는 별도 SDK 없이 httpx로 호출하므로 추가 의존성이 없다.
+
+[project.scripts]
+issue-stream = "issue_stream.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110

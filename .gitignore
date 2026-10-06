@@ -1,0 +1,33 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+# 로컬 모델 캐시·데이터
+.cache/
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+# 프론트엔드
+web/node_modules/
+web/.next/
+web/tsconfig.tsbuildinfo
+web/.env.local
+web/.env*.local
+web/next-env.d.ts
+npm-debug.log*
+# 에디터·OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

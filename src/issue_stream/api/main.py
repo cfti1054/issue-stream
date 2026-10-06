@@ -1,0 +1,305 @@
+"""대시보드용 REST API. 프론트는 계산하지 않고 여기서 받은 값을 그리기만 한다.
+
+실행: issue-stream api   (또는 uvicorn issue_stream.api.main:app --reload)
+문서: http://localhost:8000/docs
+
+화면별 엔드포인트
+  마켓 대시보드  GET /dashboard                  한 번에 필요한 값 전부
+                 GET /market/prices/{symbol}      선택 종목 가격 차트
+  이슈 브리핑    GET /issues                      이슈 카드 (근거 기사·보도량 추이 포함)
+                 GET /issues/{id}                 이슈 상세 (확산 타임라인)
+"""
+from __future__ import annotations
+
+import os
+from collections import Counter
+from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta, timezone
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import desc, func, select
+from sqlalchemy.orm import Session
+
+from ..core.config import get_settings, load_yaml
+from ..core.market_calendar import is_market_open
+from ..db.models import (
+    ApiUsage, Article, Issue, IssueArticle, IssueSummaryRow, IssueTicker, JobRun, MacroSeries, Price,
+    SectorIndex, Ticker,
+)
+from ..db.session import SessionLocal
+from ..pipeline.briefing import build_market_brief
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """`issue-stream serve` 로 띄우면 수집 스케줄러를 같은 프로세스에서 함께 돌린다."""
+    sch = None
+    if os.environ.get("ISSUE_STREAM_SCHEDULER") == "1":
+        from ..jobs.scheduler import start_background
+        sch = start_background()
+    yield
+    if sch:
+        sch.shutdown(wait=False)
+
+
+app = FastAPI(title="issue-stream API", version="0.2.0", lifespan=lifespan)
+# 브라우저에서 직접 호출할 경우 대비 (웹은 기본적으로 서버에서 호출하므로 필수는 아님)
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["GET"],
+                   allow_headers=["*"])
+
+
+def db():
+    s = SessionLocal()
+    try:
+        yield s
+    finally:
+        s.close()
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ── 운영 ──────────────────────────────────────────────────────
+@app.get("/health")
+def health(s: Session = Depends(db)):
+    """모니터링: DB 연결, 작업별 마지막 실행 결과, 오늘 API 사용량, 현재 provider 구성."""
+    st = get_settings()
+    last = {}
+    for job, in s.execute(select(JobRun.job).distinct()).all():
+        r = s.scalar(select(JobRun).where(JobRun.job == job).order_by(desc(JobRun.started_at)).limit(1))
+        last[job] = {"status": r.status, "at": r.started_at, "items": r.items, "message": r.message}
+    usage = {src: n for src, n in s.execute(
+        select(ApiUsage.source, ApiUsage.calls).where(ApiUsage.day == date.today())).all()}
+    return {
+        "ok": True, "market_open": is_market_open(), "jobs": last, "api_usage_today": usage,
+        "providers": {"embedding": st.embedding_provider, "summarizer": st.summarizer_provider,
+                      "sentiment": st.sentiment_provider, "paid_allowed": st.allow_paid_apis},
+    }
+
+
+# ── 마켓 대시보드 ─────────────────────────────────────────────
+def _series(s: Session, symbol: str, n: int) -> list[Price]:
+    rows = s.scalars(select(Price).where(Price.symbol == symbol).order_by(desc(Price.day)).limit(n)).all()
+    return list(reversed(rows))
+
+
+def _change(rows: list[Price]) -> tuple[float | None, float | None]:
+    """(전일 대비 절대값, 등락률)"""
+    if not rows:
+        return None, None
+    last = rows[-1]
+    prev = rows[-2].close if len(rows) >= 2 else None
+    pct = last.change_pct
+    if pct is None and prev:
+        pct = round((last.close / prev - 1) * 100, 2)
+    return (round(last.close - prev, 2) if prev else None), pct
+
+
+def _indices(s: Session) -> list[dict]:
+    out = []
+    for item in load_yaml("sources.yaml").get("index_strip", []):
+        sym, name = (item["symbol"], item["name"]) if isinstance(item, dict) else (item, item)
+        rows = _series(s, sym, 30)
+        if not rows:
+            continue
+        chg, pct = _change(rows)
+        out.append({"symbol": sym, "name": name, "close": rows[-1].close, "change": chg, "change_pct": pct,
+                    "day": rows[-1].day, "stale": (date.today() - rows[-1].day).days > STALE_DAYS,
+                    "spark": [r.close for r in rows]})
+    return out
+
+
+def _sentiment_counts(s: Session, code: str, hours: int = 24) -> dict:
+    rows = dict(s.execute(select(Article.sentiment, func.count()).where(
+        Article.ticker_keys.like(f"%,{code},%"), Article.published_at >= _now() - timedelta(hours=hours),
+    ).group_by(Article.sentiment)).all())
+    c = {k: int(rows.get(k, 0)) for k in ("positive", "neutral", "negative")}
+    c["total"] = sum(c.values())
+    return c
+
+
+def _watchlist(s: Session) -> list[dict]:
+    out = []
+    since = _now() - timedelta(hours=24)
+    for t in s.scalars(select(Ticker).where(Ticker.in_watchlist.is_(True))
+                      .order_by(desc(Ticker.holding), Ticker.name)).all():
+        rows = _series(s, t.code, 60)
+        chg, pct = _change(rows)
+        top = s.execute(
+            select(Issue.id, IssueSummaryRow.payload).join(IssueTicker, IssueTicker.issue_id == Issue.id)
+            .join(IssueSummaryRow, (IssueSummaryRow.issue_id == Issue.id) & IssueSummaryRow.is_current.is_(True))
+            .where(IssueTicker.ticker == t.code, Issue.last_seen >= since)
+            .order_by(desc(Issue.importance)).limit(1)).first()
+        out.append({
+            "code": t.code, "name": t.name, "holding": t.holding,
+            "close": rows[-1].close if rows else None, "change": chg, "change_pct": pct,
+            "day": rows[-1].day if rows else None, "spark": [r.close for r in rows],
+            "stale": bool(rows) and (date.today() - rows[-1].day).days > STALE_DAYS,
+            "sentiment": _sentiment_counts(s, t.code),
+            "top_issue": {"id": top[0], "headline": top[1]["headline"]} if top else None,
+        })
+    return out
+
+
+def _sectors(s: Session) -> dict:
+    last_day = s.scalar(select(func.max(SectorIndex.day)))
+    if not last_day:
+        return {"day": None, "basis": "etf", "items": []}
+    rows = s.scalars(select(SectorIndex).where(SectorIndex.day == last_day)
+                     .order_by(desc(SectorIndex.change_pct))).all()
+    return {"day": last_day, "basis": "etf" if rows and rows[0].market == "ETF" else "index",
+            "items": [{"name": r.name, "market": r.market, "change_pct": r.change_pct, "close": r.close,
+                       "symbol": r.symbol} for r in rows]}
+
+
+JOB_LABELS = {
+    "job_news_pipeline": "뉴스 수집", "job_backfill_prices": "시세", "job_daily_close": "시세(마감)",
+    "job_intraday_prices": "시세(장중)", "job_sync_tickers": "종목 목록", "job_macro": "거시 지표",
+}
+STALE_DAYS = 4
+
+
+def _collection_status(s: Session) -> dict:
+    """화면 배너용: 첫 실행 중인지, 최근 실패한 수집 작업이 있는지."""
+    latest: dict[str, JobRun] = {}
+    for r in s.scalars(select(JobRun).where(JobRun.started_at >= _now() - timedelta(days=3))
+                       .order_by(JobRun.started_at)).all():
+        latest[r.job] = r
+    problems = [{"job": j, "label": JOB_LABELS.get(j, j), "at": r.started_at,
+                 "message": (r.message or "").removeprefix("RuntimeError: ")[:240]}
+                for j, r in latest.items() if r.status == "error" and j in JOB_LABELS]
+    return {"first_run": "job_news_pipeline" not in latest, "problems": problems,
+            "scheduler": os.environ.get("ISSUE_STREAM_SCHEDULER") == "1"}
+
+
+@app.get("/dashboard")
+def dashboard(s: Session = Depends(db)):
+    """마켓 대시보드 한 화면에 필요한 값 전부. 결론(요약)이 위, 근거(표·히트맵)가 아래."""
+    issues = s.scalars(select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=24))
+                       .order_by(desc(Issue.importance)).limit(6)).all()
+    demo = bool(s.scalar(select(Price.symbol).where(Price.source == "demo").limit(1)) or
+                s.scalar(select(Article.id).where(Article.source.like("demo%")).limit(1)))
+    return {
+        "generated_at": _now(),
+        "demo": demo,
+        "collection": _collection_status(s),
+        "market_open": is_market_open(),
+        "indices": _indices(s),
+        "brief": build_market_brief(s),
+        "watchlist": _watchlist(s),
+        "sectors": _sectors(s),
+        "issues": [_issue_card(s, i, with_articles=False) for i in issues],
+    }
+
+
+@app.get("/market/prices/{symbol:path}")
+def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
+    t = s.get(Ticker, symbol)
+    rows = _series(s, symbol, days)
+    return {"symbol": symbol, "name": t.name if t else symbol,
+            "points": [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
+                        "volume": r.volume, "change_pct": r.change_pct} for r in rows]}
+
+
+@app.get("/market/watchlist")
+def watchlist(s: Session = Depends(db)):
+    return _watchlist(s)
+
+
+@app.get("/market/indices")
+def indices(s: Session = Depends(db)):
+    return _indices(s)
+
+
+@app.get("/market/sectors")
+def sectors(s: Session = Depends(db)):
+    return _sectors(s)
+
+
+@app.get("/tickers")
+def tickers(s: Session = Depends(db)):
+    """이슈 브리핑 필터용: 관심종목 + 최근 이슈에 등장한 종목."""
+    since = _now() - timedelta(hours=72)
+    rows = s.execute(select(Ticker.code, Ticker.name).where(
+        Ticker.in_watchlist.is_(True) | Ticker.code.in_(
+            select(IssueTicker.ticker).join(Issue).where(Issue.last_seen >= since)))
+        .order_by(Ticker.name)).all()
+    return [{"code": c, "name": n} for c, n in rows]
+
+
+# ── 이슈 브리핑 ───────────────────────────────────────────────
+@app.get("/issues")
+def list_issues(hours: int = 24, limit: int = 30, ticker: str | None = None, sentiment: str | None = None,
+                s: Session = Depends(db)):
+    q = select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=hours))
+    if ticker:
+        q = q.join(IssueTicker).where(IssueTicker.ticker == ticker)
+    if sentiment:
+        q = q.where(Issue.sentiment == sentiment)
+    issues = s.scalars(q.order_by(desc(Issue.importance)).limit(limit)).all()
+    return [_issue_card(s, i) for i in issues]
+
+
+@app.get("/issues/{issue_id}")
+def get_issue(issue_id: int, s: Session = Depends(db)):
+    i = s.get(Issue, issue_id)
+    if not i:
+        raise HTTPException(404)
+    return _issue_card(s, i)
+
+
+COVERAGE_HOURS = 24
+
+
+def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
+    summ = s.scalar(select(IssueSummaryRow).where(IssueSummaryRow.issue_id == i.id,
+                                                  IssueSummaryRow.is_current.is_(True)))
+    tickers = s.execute(select(Ticker.code, Ticker.name).join(IssueTicker, IssueTicker.ticker == Ticker.code)
+                        .where(IssueTicker.issue_id == i.id).order_by(desc(IssueTicker.mentions))).all()
+    arts = s.scalars(select(Article).join(IssueArticle, IssueArticle.article_id == Article.id)
+                     .where(IssueArticle.issue_id == i.id).order_by(Article.published_at)).all()
+    now = _now()
+
+    # 보도량 추이: 최근 24시간을 1시간 단위로 (오래된 → 최근)
+    coverage = [0] * COVERAGE_HOURS
+    for a in arts:
+        h = int((now - a.published_at).total_seconds() // 3600)
+        if 0 <= h < COVERAGE_HOURS:
+            coverage[COVERAGE_HOURS - 1 - h] += 1
+
+    # 출처: 매체별 첫 보도 시각 (먼저 보도한 순)
+    first_by_pub: dict[str, datetime] = {}
+    for a in arts:
+        if a.publisher and a.publisher not in first_by_pub:
+            first_by_pub[a.publisher] = a.published_at
+    sources = [{"publisher": p, "at": t} for p, t in first_by_pub.items()]
+
+    card = {
+        "id": i.id, "importance": i.importance, "sentiment": i.sentiment or "neutral",
+        "article_count": i.article_count, "publisher_count": i.publisher_count,
+        "has_disclosure": i.has_disclosure, "first_seen": i.first_seen, "last_seen": i.last_seen,
+        "tickers": [{"code": c, "name": n} for c, n in tickers],
+        "summary": summ.payload if summ else None,
+        "sources": sources,
+        "coverage": coverage,
+        "last_hour": sum(1 for a in arts if a.published_at >= now - timedelta(hours=1)),
+        "article_sentiment": dict(Counter(a.sentiment or "neutral" for a in arts)),
+    }
+    if with_articles:
+        # 저작권: 제목·매체·시각·링크만 노출 (본문 없음). 요약에 쓰인 근거 기사를 먼저.
+        used = set((summ.payload.get("source_article_ids") if summ else []) or [])
+        card["articles"] = sorted(
+            [{"id": a.id, "title": a.title, "publisher": a.publisher, "url": a.url,
+              "published_at": a.published_at, "kind": a.kind, "sentiment": a.sentiment,
+              "cited": str(a.id) in used} for a in arts],
+            key=lambda x: (not x["cited"], x["published_at"]))
+    return card
+
+
+# ── 거시 ─────────────────────────────────────────────────────
+@app.get("/macro/{series_id}")
+def macro(series_id: str, s: Session = Depends(db)):
+    rows = s.scalars(select(MacroSeries).where(MacroSeries.series_id == series_id)
+                     .order_by(MacroSeries.day)).all()
+    return [{"day": r.day, "value": r.value} for r in rows]

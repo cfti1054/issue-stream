@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────
+# 수집 소스 설정. 아래 기본값은 모두 무료이며 API 키 없이 동작한다.
+# 각 소스가 지금 응답하는지는 `issue-stream doctor` 로 확인하고, 안 되는 것은 enabled: false 로 끈다.
+# ─────────────────────────────────────────────────────────────
+
+# 언론사 RSS (무료, 키 불필요). 실패하는 피드는 경고만 남기고 건너뛴다.
+rss:
+  - {name: 한국경제 증권, url: "https://www.hankyung.com/feed/finance", enabled: true}
+  - {name: 한국경제 경제, url: "https://www.hankyung.com/feed/economy", enabled: true}
+  - {name: 매일경제 증권, url: "https://www.mk.co.kr/rss/50200011/", enabled: true}
+  - {name: 연합뉴스 경제, url: "https://www.yna.co.kr/rss/economy.xml", enabled: true}
+  - {name: 파이낸셜뉴스 증권, url: "https://www.fnnews.com/rss/r20/fn_realnews_stock.xml", enabled: true}
+  # doctor 로 확인 후 켜기
+  - {name: 이데일리 증권, url: "https://rss.edaily.co.kr/stock_news.xml", enabled: false}
+  - {name: 서울경제 증권, url: "https://www.sedaily.com/rss/finance", enabled: false}
+  - {name: 이투데이 증권, url: "https://rss.etoday.co.kr/eto/market_news.xml", enabled: false}
+
+# 구글 뉴스 RSS 검색 (무료, 키 불필요). 관심종목 이름 + 추가 키워드로 최근 기사 수집.
+google_news:
+  enabled: true
+  per_ticker: true          # watchlist.yaml 의 종목명으로 검색
+  window: 1d                # 최근 1일
+  extra_queries: ["코스피", "코스닥 마감", "기준금리", "원달러 환율"]
+
+# 네이버 뉴스 검색 API (무료, 키 필요: NAVER_CLIENT_ID/SECRET)
+naver_news:
+  enabled: false
+  extra_keywords: ["코스피", "코스닥", "금리", "환율"]
+  display: 50
+
+# 거시 지표 (무료, 키 필요)
+ecos:
+  enabled: false           # ECOS_API_KEY 입력 후 켜기
+  series:
+    - {code: "722Y001", item: "0101000", cycle: "D", name: "한국은행 기준금리"}
+    - {code: "731Y001", item: "0000001", cycle: "D", name: "원/달러 환율(매매기준율)"}
+fred:
+  enabled: false           # FRED_API_KEY 입력 후 켜기
+  series: ["DGS10", "FEDFUNDS", "CPIAUCSL"]
+
+# 대시보드 상단 지수 스트립.
+# sources 를 생략하면 기본 순서(네이버 → 야후 → FinanceDataReader)로 시도한다.
+index_strip:
+  - {symbol: "KS11", name: "코스피"}
+  - {symbol: "KQ11", name: "코스닥"}
+  - {symbol: "US500", name: "S&P 500"}
+  - {symbol: "IXIC", name: "나스닥"}
+  - {symbol: "USD/KRW", name: "원/달러"}
+
+# 업종 히트맵: 업종 ETF 의 전일 대비 등락률로 그린다 (KRX 업종 지수는 로그인이 필요해 대체).
+# name 은 화면 표시 이름, code 는 ETF 종목코드. doctor 가 실제 ETF 이름을 보여주니 맞는지 확인할 것.
+sector_etfs:
+  - {name: 반도체, code: "091160"}        # KODEX 반도체
+  - {name: 2차전지, code: "305540"}       # TIGER 2차전지테마
+  - {name: 자동차, code: "091180"}        # KODEX 자동차
+  - {name: 은행, code: "091170"}          # KODEX 은행
+  - {name: 증권, code: "102970"}          # KODEX 증권
+  - {name: 보험, code: "140700"}          # KODEX 보험
+  - {name: 건설, code: "117700"}          # KODEX 건설
+  - {name: 철강, code: "117680"}          # KODEX 철강
+  - {name: 에너지화학, code: "117460"}    # KODEX 에너지화학
+  - {name: 기계장비, code: "102960"}      # KODEX 기계장비
+  - {name: 운송, code: "140710"}          # KODEX 운송
+  - {name: 헬스케어, code: "266420"}      # KODEX 헬스케어
+  - {name: 바이오, code: "244580"}        # KODEX 바이오
+  - {name: 미디어·엔터, code: "266360"}   # KODEX 미디어&엔터테인먼트
+  - {name: 게임, code: "300950"}          # KODEX 게임산업
+  - {name: IT, code: "266370"}            # KODEX IT
