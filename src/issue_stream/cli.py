@@ -107,7 +107,22 @@ def cmd_serve(a):
     migrate()
     os.environ["ISSUE_STREAM_SCHEDULER"] = "0" if a.no_scheduler else "1"
     print(f"API: http://{a.host}:{a.port}/docs   대시보드: http://localhost:3000 (web 폴더에서 npm run dev)")
-    uvicorn.run("issue_stream.api.main:app", host=a.host, port=a.port, log_level="info")
+    if a.host == "::":
+        # 컨테이너 기본값(IPV6_V6ONLY)에 따라 IPv6 만 받는 경우가 있어 IPv4 도 받도록 직접 연다.
+        # Railway 헬스체크는 IPv4, 내부망은 IPv6 로 들어온다.
+        server = uvicorn.Server(uvicorn.Config("issue_stream.api.main:app", log_level="info"))
+        server.run(sockets=[_dual_stack_socket(a.port)])
+    else:
+        uvicorn.run("issue_stream.api.main:app", host=a.host, port=a.port, log_level="info")
+
+
+def _dual_stack_socket(port: int):
+    import socket
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+    sock.bind(("::", port))
+    return sock
 
 
 def cmd_run(_):

@@ -5,8 +5,9 @@
 
 # 언론사 RSS (무료, 키 불필요). 실패하는 피드는 경고만 남기고 건너뛴다.
 rss:
-  - {name: 한국경제 증권, url: "https://www.hankyung.com/feed/finance", enabled: true}
-  - {name: 한국경제 경제, url: "https://www.hankyung.com/feed/economy", enabled: true}
+  # 한국경제: 해외 서버 IP(Railway 싱가포르)에서 403 Forbidden → 끔. 국내 PC 에서만 쓸 거면 true 로.
+  - {name: 한국경제 증권, url: "https://www.hankyung.com/feed/finance", enabled: false}
+  - {name: 한국경제 경제, url: "https://www.hankyung.com/feed/economy", enabled: false}
   - {name: 매일경제 증권, url: "https://www.mk.co.kr/rss/50200011/", enabled: true}
   - {name: 연합뉴스 경제, url: "https://www.yna.co.kr/rss/economy.xml", enabled: true}
   - {name: 파이낸셜뉴스 증권, url: "https://www.fnnews.com/rss/r20/fn_realnews_stock.xml", enabled: true}
