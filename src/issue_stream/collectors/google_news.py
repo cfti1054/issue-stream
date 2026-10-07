@@ -12,10 +12,9 @@ from urllib.parse import quote
 
 import feedparser
 
-from ..core.config import load_yaml
 from ..core.http import get_bytes
 from ..core.schemas import RawDoc
-from .base import Collector, clean_text
+from .base import Collector, clean_text, watchlist_names
 
 URL = "https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
 
@@ -42,7 +41,7 @@ class GoogleNewsCollector(Collector):
     def queries(self) -> list[str]:
         qs = []
         if self.per_ticker:
-            qs += [f'"{w["name"]}"' for w in load_yaml("watchlist.yaml").get("watchlist", [])]
+            qs += [f'"{n}"' for n in watchlist_names()]
         return qs + list(self.extra)
 
     def fetch(self, since: datetime) -> list[RawDoc]:

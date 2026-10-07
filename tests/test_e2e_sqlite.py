@@ -36,8 +36,20 @@ def client(tmp_path_factory):
     get_settings.cache_clear()
 
 
-def test_dashboard_payload(client):
-    d = client.get("/dashboard").json()
+@pytest.fixture(scope="module")
+def auth(client):
+    """watchlist.yaml 종목으로 시작하는 계정 하나로 로그인한 헤더."""
+    from issue_stream import accounts
+    accounts.create_user("MeUser", "password123", "나")
+    r = client.post("/auth/login", json={"username": "meuser", "password": "password123"})
+    assert r.status_code == 200
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_dashboard_payload(client, auth):
+    assert client.get("/dashboard").json()["watchlist"] == []           # 로그인 전에는 관심종목 없음
+    d = client.get("/dashboard", headers=auth).json()
+    assert d["user"]["username"] == "meuser"
     assert d["demo"] is True
     assert len(d["indices"]) == 5 and all(len(i["spark"]) > 10 for i in d["indices"])
     assert d["brief"]["issue_count"] >= 6
@@ -100,3 +112,116 @@ def test_all_news_sources_failing_is_reported(client, monkeypatch):
     st = client.get("/dashboard").json()["collection"]
     assert st["first_run"] is False
     assert any(p["job"] == "job_news_pipeline" and "모든 뉴스 소스" in p["message"] for p in st["problems"])
+
+
+def test_login_rejects_bad_credentials(client, auth):
+    assert client.post("/auth/login", json={"username": "meuser", "password": "wrong-pass"}).status_code == 401
+    assert client.post("/auth/login", json={"username": "nobody", "password": "password123"}).status_code == 401
+    assert client.get("/auth/me").status_code == 401
+    assert client.get("/me/watchlist", headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert client.get("/auth/me", headers=auth).json()["name"] == "나"
+
+
+def test_watchlist_is_per_account(client, auth, monkeypatch):
+    from sqlalchemy import select
+
+    from issue_stream import accounts
+    from issue_stream.db.models import Ticker
+    from issue_stream.db.session import session_scope
+    from issue_stream.jobs import tasks
+    backfilled = []
+    monkeypatch.setattr(tasks, "job_backfill_ticker", lambda code: backfilled.append(code))
+
+    accounts.create_user("other_1", "password456", default_watchlist=False)
+    tok = client.post("/auth/login", json={"username": "other_1", "password": "password456"}).json()["token"]
+    other = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/me/watchlist", headers=other).json() == []
+
+    # 검색 → ☆ 등록. yaml 에 없던 종목은 수집 대상이 되고 과거 시세를 채운다
+    found = client.get("/tickers/search?q=NAV", headers=other).json()
+    assert found[0]["code"] == "035420" and found[0]["watched"] is False
+    assert client.put("/me/watchlist/035420", headers=other, json={"holding": True}).status_code == 200
+    assert backfilled == ["035420"]
+    assert client.put("/me/watchlist/999999", headers=other).status_code == 404
+    mine = client.get("/me/watchlist", headers=other).json()
+    assert [(w["code"], w["holding"]) for w in mine] == [("035420", True)]
+    assert client.get("/tickers/search?q=035420", headers=other).json()[0]["watched"] is True
+    client.put("/me/watchlist/035420", headers=other)                   # 본문 없이 다시 ☆ → 보유 유지
+    assert client.get("/me/watchlist", headers=other).json()[0]["holding"] is True
+    with session_scope() as db:
+        assert db.scalar(select(Ticker.in_watchlist).where(Ticker.code == "035420")) is True
+
+    # 다른 계정의 관심종목에는 영향 없음
+    codes = {w["code"] for w in client.get("/me/watchlist", headers=auth).json()}
+    assert "035420" not in codes and "005930" in codes
+
+    # ★ 해제하면 아무도 보지 않는 종목은 수집 대상에서 빠진다. yaml 종목은 계속 수집
+    assert client.delete("/me/watchlist/035420", headers=other).status_code == 204
+    client.delete("/me/watchlist/005930", headers=auth)
+    with session_scope() as db:
+        assert db.scalar(select(Ticker.in_watchlist).where(Ticker.code == "035420")) is False
+        assert db.scalar(select(Ticker.in_watchlist).where(Ticker.code == "005930")) is True
+    client.put("/me/watchlist/005930", headers=auth, json={"holding": True})
+
+    # 로그아웃하면 토큰은 더 이상 쓸 수 없다
+    assert client.post("/auth/logout", headers=other).status_code == 204
+    assert client.get("/auth/me", headers=other).status_code == 401
+
+
+def test_entities_have_internal_id_and_display_no(client, auth):
+    from sqlalchemy import func, select, text
+
+    from issue_stream.db.models import Article, Issue, JobRun, User
+    from issue_stream.db.session import session_scope
+    with session_scope() as db:
+        for m in (Article, Issue, JobRun, User):                       # 트리거가 no 를 빠짐없이 채운다
+            assert db.scalar(select(func.count()).select_from(m).where(m.no.is_(None))) == 0
+            assert db.scalar(select(func.count(m.no.distinct()))) == db.scalar(select(func.count()).select_from(m))
+        db.execute(text("INSERT INTO job_runs (job, started_at, status, items) VALUES ('raw', '2026-01-01', 'ok', 0)"))
+        raw = db.scalar(select(JobRun).where(JobRun.job == "raw"))
+        assert raw.no == db.scalar(select(func.max(JobRun.no)))        # SQL 로 직접 넣어도 번호가 매겨진다
+        db.add(u := JobRun(job="orm", started_at=raw.started_at, status="ok"))
+        db.flush()
+        assert u.no == raw.no + 1                                       # ORM INSERT 후에도 no 를 읽어 온다
+
+    card = client.get("/issues?limit=1").json()[0]
+    assert "id" not in card and "no" in card["articles"][0]             # 응답에는 화면용 번호만
+    assert client.get(f"/issues/{card['no']}").json()["no"] == card["no"]
+    assert client.get("/issues/999999").status_code == 404
+    assert "no" in client.get("/auth/me", headers=auth).json()
+    bullet = client.get("/dashboard").json()["brief"]["bullets"][0]
+    assert "issue_no" in bullet
+
+
+def test_signup_logs_in_and_respects_settings(client, monkeypatch):
+    from issue_stream.core.config import get_settings
+    st = get_settings()
+    cfg = client.get("/auth/config").json()
+    assert cfg["signup"] is True and cfg["invite_required"] is False
+
+    r = client.post("/auth/signup", json={"username": "NewUser", "password": "password789", "name": "새 계정"})
+    assert r.status_code == 201
+    h = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert client.get("/auth/me", headers=h).json()["username"] == "newuser"
+    assert {w["code"] for w in client.get("/me/watchlist", headers=h).json()} >= {"005930"}   # yaml 로 시작
+
+    assert client.post("/auth/signup", json={"username": "newuser", "password": "password789"}).status_code == 409
+    assert client.post("/auth/signup", json={"username": "xuser", "password": "short"}).status_code == 400
+    for bad in ("abc", "1user", "has space", "a" * 21, "me@example.com", "한글아이디"):   # 아이디 규칙
+        assert client.post("/auth/signup", json={"username": bad, "password": "password789"}).status_code == 400, bad
+
+    monkeypatch.setattr(st, "signup_invite_code", "abc123")
+    assert client.get("/auth/config").json()["invite_required"] is True
+    body = {"username": "invited", "password": "password789"}
+    assert client.post("/auth/signup", json={**body, "invite_code": "wrong"}).status_code == 403
+    assert client.post("/auth/signup", json={**body, "invite_code": "abc123"}).status_code == 201
+
+    monkeypatch.setattr(st, "signup_enabled", False)
+    assert client.post("/auth/signup", json={"username": "closed", "password": "password789",
+                                             "invite_code": "abc123"}).status_code == 403
+
+    # 관심종목 상한
+    monkeypatch.setattr(st, "max_watchlist_per_user", len(client.get("/me/watchlist", headers=h).json()))
+    r = client.put("/me/watchlist/035720", headers=h)
+    assert r.status_code == 400 and "까지" in r.json()["detail"]
+    assert client.put("/me/watchlist/005930", headers=h).status_code == 200   # 이미 있는 종목은 상한과 무관

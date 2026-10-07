@@ -6,6 +6,7 @@ import { Heatmap, SentimentBar, Sparkline } from "@/components/charts";
 import PriceChart from "@/components/PriceChart";
 import ErrorBox from "@/components/ErrorBox";
 import StatusBanner from "@/components/StatusBanner";
+import { HoldToggle, StarButton, WatchSearch } from "@/components/watch";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +19,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} apiBase={api.apiBase} />;
   }
 
-  // 차트 대상: URL 의 ?ticker= → 보유종목 → 첫 관심종목
-  const selected = d.watchlist.find((w) => w.code === ticker)
-    ?? d.watchlist.find((w) => w.holding) ?? d.watchlist[0];
+  // 차트 대상: URL 의 ?ticker= (관심종목이 아니어도 됨) → 보유종목 → 첫 관심종목
+  const fallback = d.watchlist.find((w) => w.holding) ?? d.watchlist[0];
+  const chartCode = ticker ?? fallback?.code;
   let series: PriceSeries | null = null;
-  if (selected) {
-    try { series = await api.prices(selected.code, 120); } catch { series = null; }
+  if (chartCode) {
+    try { series = await api.prices(chartCode, 120); } catch { series = null; }
   }
+  const watched = d.watchlist.find((w) => w.code === chartCode);
+  // 관심종목이 아니면 시세 데이터로 헤더를 채운다 (수집 대상이 아니면 시세가 비어 있을 수 있음)
+  const last = series?.points.at(-1);
+  const prev = series?.points.at(-2);
+  const selected = watched ?? (chartCode && series ? {
+    code: chartCode, name: series.name, close: last?.close ?? null, day: last?.day ?? null,
+    change: last && prev ? last.close - prev.close : null, change_pct: last?.change_pct ?? null,
+  } : undefined);
+  const isStock = !!chartCode && /^[0-9A-Z]{6}$/.test(chartCode);
   const now = Date.now();
 
   return (
@@ -69,10 +79,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           {d.brief.bullets.length > 0 ? (
             <ol>
               {d.brief.bullets.map((b, i) => (
-                <li key={b.issue_id}>
+                <li key={b.issue_no}>
                   <span className="rank tnum">{i + 1}</span>
                   <span className={`senti senti-${b.sentiment}`}>{SENTI_LABEL[b.sentiment]}</span>
-                  <Link href={`/issues#issue-${b.issue_id}`}>{b.text}</Link>
+                  <Link href={`/issues#issue-${b.issue_no}`}>{b.text}</Link>
                 </li>
               ))}
             </ol>
@@ -90,10 +100,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <div className="grid-2">
           <section className="card pad" aria-label="관심종목">
             <h2 className="section-title">관심종목 <small>뉴스 심리는 최근 24시간 기사 기준</small></h2>
-            {d.watchlist.length === 0 ? <div className="empty">config/watchlist.yaml 에 종목을 추가하세요</div> : (
+            {d.user && <WatchSearch />}
+            {!d.user ? (
+              <div className="empty">
+                <Link className="btn" href="/login">로그인</Link>
+                <p>로그인하면 원하는 종목을 ☆ 로 관심종목에 등록해 시세·뉴스 심리를 모아 볼 수 있습니다.</p>
+                <p className="num-s">계정이 없으면 <Link href="/signup">가입하기</Link></p>
+              </div>
+            ) : d.watchlist.length === 0 ? (
+              <div className="empty">위 검색창에서 종목을 찾아 ☆ 를 누르거나, 뉴스의 종목 태그를 눌러 차트에서 ☆ 를 누르세요</div>
+            ) : (
               <table className="wl">
                 <thead>
                   <tr>
+                    <th aria-label="관심종목" style={{ width: 28 }} />
                     <th>종목</th>
                     <th className="r">현재가</th>
                     <th className="r">등락</th>
@@ -103,13 +123,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <tbody>
                   {d.watchlist.map((w) => (
                     <tr key={w.code} aria-selected={w.code === selected?.code}>
+                      <td className="star-cell"><StarButton code={w.code} name={w.name} watched size="s" /></td>
                       <td>
-                        <Link className="row-link" href={`/?ticker=${w.code}`} scroll={false}>
-                          <span className="name">{w.name}{w.holding && <span className="hold">보유</span>}</span>
-                          <span className="code">{w.code}</span>
-                        </Link>
+                        <div className="name-row">
+                          <Link className="row-link" href={`/?ticker=${w.code}`} scroll={false}>
+                            <span className="name">{w.name}</span>
+                            <span className="code">{w.code}</span>
+                          </Link>
+                          <HoldToggle code={w.code} holding={w.holding} />
+                        </div>
                         {w.top_issue && (
-                          <Link className="issue-link" href={`/issues?ticker=${w.code}#issue-${w.top_issue.id}`}
+                          <Link className="issue-link" href={`/issues?ticker=${w.code}#issue-${w.top_issue.no}`}
                             title={w.top_issue.headline}>↳ {w.top_issue.headline}</Link>
                         )}
                       </td>
@@ -133,7 +157,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             {selected && series ? (
               <>
                 <h2 className="section-title">
+                  {d.user && isStock && <StarButton code={selected.code} name={selected.name} watched={!!watched} />}
                   {selected.name} <small>{selected.code}</small>
+                  {!d.user && isStock && <Link className="num-s" href={`/login?next=${encodeURIComponent(`/?ticker=${selected.code}`)}`}>로그인하고 ☆ 관심종목 등록</Link>}
                   <span className="right">종가 · 일봉</span>
                 </h2>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
@@ -143,9 +169,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   </span>
                   <span className="muted num-s">{selected.day}</span>
                 </div>
-                <PriceChart points={series.points} />
+                {series.points.length > 0 ? <PriceChart points={series.points} />
+                  : <div className="empty">시세를 모으는 중입니다. 관심종목에 등록하면 과거 시세를 바로 채웁니다.</div>}
               </>
-            ) : <div className="empty">시세 데이터가 없습니다</div>}
+            ) : <div className="empty">{d.user ? "관심종목을 추가하면 가격 차트가 표시됩니다" : "뉴스의 종목 태그를 누르면 가격 차트가 표시됩니다"}</div>}
           </section>
         </div>
 
@@ -158,12 +185,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             {d.issues.length === 0 ? <div className="empty">최근 24시간 이슈가 없습니다</div> : (
               <ul className="news-list">
                 {d.issues.map((it) => (
-                  <li key={it.id}>
+                  <li key={it.no}>
                     <span className={`score tnum ${it.importance >= 60 ? "hot" : ""}`} title="중요도">
                       {Math.round(it.importance)}
                     </span>
                     <div>
-                      <Link className="headline" href={`/issues#issue-${it.id}`}>{it.summary?.headline ?? "요약 대기"}</Link>
+                      <Link className="headline" href={`/issues#issue-${it.no}`}>{it.summary?.headline ?? "요약 대기"}</Link>
                       <div className="meta">
                         <span className={`senti senti-${it.sentiment}`}>{SENTI_LABEL[it.sentiment]}</span>
                         <span>{it.sources[0]?.publisher} 외 {Math.max(0, it.publisher_count - 1)}곳</span>

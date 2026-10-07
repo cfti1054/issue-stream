@@ -68,7 +68,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
         <div className="card empty">조건에 맞는 이슈가 없습니다. 기간을 늘리거나 필터를 해제해 보세요.</div>
       ) : (
         <div className="issue-grid">
-          {issues.map((it) => <IssueCard key={it.id} issue={it} now={now} />)}
+          {issues.map((it) => <IssueCard key={it.no} issue={it} now={now} />)}
         </div>
       )}
     </>

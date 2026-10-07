@@ -40,3 +40,10 @@ def test_empty_cluster_threshold_in_env_uses_provider_default(monkeypatch):
     s = Settings(_env_file=None)
     assert s.cluster_sim_threshold is None
     assert s.effective_cluster_threshold() == 0.35
+
+
+def test_railway_postgres_url_uses_psycopg3():
+    from issue_stream.core.config import Settings
+    for raw in ("postgresql://u:p@h:5432/db", "postgres://u:p@h:5432/db"):
+        assert Settings(database_url=raw).database_url == "postgresql+psycopg://u:p@h:5432/db"
+    assert Settings(database_url="postgresql+psycopg://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"

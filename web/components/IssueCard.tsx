@@ -9,7 +9,7 @@ export default function IssueCard({ issue, now }: { issue: Issue; now: number })
   const hot = issue.importance >= 60;
   const cited = issue.articles?.filter((a) => a.cited).length ?? 0;
   return (
-    <article className="card issue" id={`issue-${issue.id}`}>
+    <article className="card issue" id={`issue-${issue.no}`}>
       <div className="issue-top">
         <span className={`imp tnum ${hot ? "hot" : ""}`} title="중요도 (기사 수·매체 다양성·확산 속도·보유종목·공시 가중합)">
           중요도 {Math.round(issue.importance)}
@@ -63,7 +63,7 @@ export default function IssueCard({ issue, now }: { issue: Issue; now: number })
           <summary>근거 기사 {issue.articles.length}건{cited ? ` (요약에 사용 ${cited}건)` : ""}</summary>
           <ul className="ev-list">
             {issue.articles.map((a) => (
-              <li key={a.id}>
+              <li key={a.no}>
                 <span className="t tnum">{timeKST(a.published_at)}</span>
                 <div>
                   <a className="ttl" href={a.url} target="_blank" rel="noreferrer">{a.title}</a>

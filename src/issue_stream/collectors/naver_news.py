@@ -5,10 +5,10 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
-from ..core.config import get_settings, load_yaml
+from ..core.config import get_settings
 from ..core.http import get_json
 from ..core.schemas import RawDoc
-from .base import Collector, clean_text
+from .base import Collector, clean_text, watchlist_names
 
 API = "https://openapi.naver.com/v1/search/news.json"
 
@@ -21,8 +21,7 @@ class NaverNewsCollector(Collector):
         self.display = min(display, 100)
 
     def _queries(self) -> list[str]:
-        wl = load_yaml("watchlist.yaml").get("watchlist", [])
-        return [w["name"] for w in wl] + list(self.extra_keywords)
+        return watchlist_names() + list(self.extra_keywords)
 
     def fetch(self, since: datetime) -> list[RawDoc]:
         s = get_settings()

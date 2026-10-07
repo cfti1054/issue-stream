@@ -1,4 +1,7 @@
 // FastAPI 응답 타입과 호출 함수. 화면은 여기서 받은 값을 그리기만 한다 (계산은 백엔드).
+// 서버(서버 컴포넌트·서버 액션)에서만 쓴다. 로그인 토큰은 HttpOnly 쿠키에서 꺼내 Bearer 로 넘긴다.
+import { cookies } from "next/headers";
+import { SESSION_COOKIE } from "./session";
 
 export type Sentiment = "positive" | "neutral" | "negative";
 
@@ -14,7 +17,7 @@ export interface IndexItem {
 }
 
 export interface BriefBullet {
-  issue_id: number;
+  issue_no: number;
   text: string;
   sentiment: Sentiment;
   importance: number;
@@ -47,7 +50,7 @@ export interface WatchItem {
   spark: number[];
   stale: boolean;
   sentiment: SentimentCounts;
-  top_issue: { id: number; headline: string } | null;
+  top_issue: { no: number; headline: string } | null;
 }
 
 export interface SectorItem {
@@ -69,7 +72,7 @@ export interface IssueSummary {
 }
 
 export interface IssueArticle {
-  id: number;
+  no: number;
   title: string;
   publisher: string | null;
   url: string;
@@ -80,7 +83,7 @@ export interface IssueArticle {
 }
 
 export interface IssueCard {
-  id: number;
+  no: number;
   importance: number;
   sentiment: Sentiment;
   article_count: number;
@@ -103,8 +106,35 @@ export interface CollectionStatus {
   problems: { job: string; label: string; message: string; at: string }[];
 }
 
+export interface User {
+  no: number;
+  username: string;
+  name: string | null;
+}
+
+export interface AuthConfig {
+  signup: boolean;
+  invite_required: boolean;
+  min_password: number;
+  username_rule: string;
+}
+
+export interface Session {
+  token: string;
+  expires_at: string;
+  user: User;
+}
+
+export interface TickerHit {
+  code: string;
+  name: string;
+  market: string | null;
+  watched: boolean;
+}
+
 export interface Dashboard {
   generated_at: string;
+  user: User | null;
   demo: boolean;
   collection: CollectionStatus;
   market_open: boolean;
@@ -133,18 +163,33 @@ export interface PriceSeries {
 
 const API_BASE = (process.env.API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, readonly status = 0) {
+    super(message);
+  }
+}
 
-async function get<T>(path: string): Promise<T> {
+async function call<T>(method: string, path: string, body?: unknown, token?: string): Promise<T> {
+  const headers: Record<string, string> = {};
+  token ??= (await cookies()).get(SESSION_COOKIE)?.value;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+    res = await fetch(`${API_BASE}${path}`, {
+      method, headers, cache: "no-store", body: body === undefined ? undefined : JSON.stringify(body),
+    });
   } catch {
     throw new ApiError(`API 서버(${API_BASE})에 연결할 수 없습니다.`);
   }
-  if (!res.ok) throw new ApiError(`API 오류 ${res.status}: ${path}`);
-  return res.json() as Promise<T>;
+  if (!res.ok) {
+    const detail = await res.json().then((j) => j?.detail).catch(() => null);
+    throw new ApiError(typeof detail === "string" ? detail : `API 오류 ${res.status}: ${path}`, res.status);
+  }
+  return (res.status === 204 ? null : res.json()) as Promise<T>;
 }
+
+const get = <T,>(path: string) => call<T>("GET", path);
 
 export const api = {
   dashboard: () => get<Dashboard>("/dashboard"),
@@ -159,5 +204,21 @@ export const api = {
     return get<IssueCard[]>(`/issues?${p}`);
   },
   tickers: () => get<{ code: string; name: string }[]>("/tickers"),
+  searchTickers: (q: string) => get<TickerHit[]>(`/tickers/search?q=${encodeURIComponent(q)}`),
+
+  // 로그인 (로그인 전이라 쿠키 토큰 대신 빈 토큰을 넘긴다)
+  login: (username: string, password: string) =>
+    call<Session>("POST", "/auth/login", { username, password }, ""),
+  signup: (b: { username: string; password: string; name?: string; invite_code?: string }) =>
+    call<Session>("POST", "/auth/signup", b, ""),
+  authConfig: () => call<AuthConfig>("GET", "/auth/config", undefined, ""),
+  logout: () => call<null>("POST", "/auth/logout"),
+  me: () => get<User>("/auth/me"),
+
+  // 관심종목 (로그인 필요)
+  watch: (code: string, holding?: boolean) =>
+    call<{ code: string; name: string; holding: boolean }>(
+      "PUT", `/me/watchlist/${encodeURIComponent(code)}`, holding === undefined ? undefined : { holding }),
+  unwatch: (code: string) => call<null>("DELETE", `/me/watchlist/${encodeURIComponent(code)}`),
   apiBase: API_BASE,
 };

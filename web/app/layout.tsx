@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import Link from "next/link";
 import { AutoRefresh, Nav } from "@/components/chrome";
+import { LogoutButton } from "@/components/watch";
+import { getUser } from "@/lib/user";
 
 export const metadata: Metadata = {
   title: "issue-stream",
@@ -9,7 +12,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = await getUser();
   return (
     <html lang="ko">
       <body>
@@ -17,6 +21,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="topbar-inner">
             <div className="brand"><span className="brand-dot" />issue-stream</div>
             <Nav />
+            <div className="topbar-meta">
+              {user ? (
+                <>
+                  <span title={user.username}>{user.name || user.username}</span>
+                  <LogoutButton />
+                </>
+              ) : <Link className="btn btn-s" href="/login">로그인</Link>}
+            </div>
           </div>
         </header>
         <main className="shell">{children}</main>

@@ -7,7 +7,11 @@
   마켓 대시보드  GET /dashboard                  한 번에 필요한 값 전부
                  GET /market/prices/{symbol}      선택 종목 가격 차트
   이슈 브리핑    GET /issues                      이슈 카드 (근거 기사·보도량 추이 포함)
-                 GET /issues/{id}                 이슈 상세 (확산 타임라인)
+                 GET /issues/{no}                 이슈 상세 (확산 타임라인)
+  로그인·가입    POST /auth/login, /auth/signup, /auth/logout, GET /auth/me, /auth/config   (api/auth.py)
+  관심종목       GET /me/watchlist, PUT·DELETE /me/watchlist/{code}, GET /tickers/search
+  번호           이슈·기사·계정은 화면용 번호 no 로 내보낸다. 내부 PK id 는 FK 전용 (db/sequences.py)
+                 관심종목은 계정별. 로그인하지 않으면 /dashboard 의 watchlist 는 빈 목록이다.
 """
 from __future__ import annotations
 
@@ -16,19 +20,21 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import desc, func, select
+from pydantic import BaseModel
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..core.config import get_settings, load_yaml
 from ..core.market_calendar import is_market_open
 from ..db.models import (
     ApiUsage, Article, Issue, IssueArticle, IssueSummaryRow, IssueTicker, JobRun, MacroSeries, Price,
-    SectorIndex, Ticker,
+    SectorIndex, Ticker, User, UserWatchlist,
 )
-from ..db.session import SessionLocal
 from ..pipeline.briefing import build_market_brief
+from .auth import current_user, db, optional_user, user_json
+from .auth import router as auth_router
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -46,14 +52,7 @@ app = FastAPI(title="issue-stream API", version="0.2.0", lifespan=lifespan)
 # 브라우저에서 직접 호출할 경우 대비 (웹은 기본적으로 서버에서 호출하므로 필수는 아님)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["GET"],
                    allow_headers=["*"])
-
-
-def db():
-    s = SessionLocal()
-    try:
-        yield s
-    finally:
-        s.close()
+app.include_router(auth_router)
 
 
 def _now() -> datetime:
@@ -119,25 +118,31 @@ def _sentiment_counts(s: Session, code: str, hours: int = 24) -> dict:
     return c
 
 
-def _watchlist(s: Session) -> list[dict]:
+def _watchlist(s: Session, user: User | None) -> list[dict]:
+    """계정별 관심종목 (보유 → 이름순). 로그인하지 않았으면 빈 목록."""
+    if user is None:
+        return []
     out = []
     since = _now() - timedelta(hours=24)
-    for t in s.scalars(select(Ticker).where(Ticker.in_watchlist.is_(True))
-                      .order_by(desc(Ticker.holding), Ticker.name)).all():
+    rows = s.execute(select(Ticker, UserWatchlist.holding)
+                     .join(UserWatchlist, UserWatchlist.ticker == Ticker.code)
+                     .where(UserWatchlist.user_id == user.id)
+                     .order_by(desc(UserWatchlist.holding), Ticker.name)).all()
+    for t, holding in rows:
         rows = _series(s, t.code, 60)
         chg, pct = _change(rows)
         top = s.execute(
-            select(Issue.id, IssueSummaryRow.payload).join(IssueTicker, IssueTicker.issue_id == Issue.id)
+            select(Issue.no, IssueSummaryRow.payload).join(IssueTicker, IssueTicker.issue_id == Issue.id)
             .join(IssueSummaryRow, (IssueSummaryRow.issue_id == Issue.id) & IssueSummaryRow.is_current.is_(True))
             .where(IssueTicker.ticker == t.code, Issue.last_seen >= since)
             .order_by(desc(Issue.importance)).limit(1)).first()
         out.append({
-            "code": t.code, "name": t.name, "holding": t.holding,
+            "code": t.code, "name": t.name, "holding": holding,
             "close": rows[-1].close if rows else None, "change": chg, "change_pct": pct,
             "day": rows[-1].day if rows else None, "spark": [r.close for r in rows],
             "stale": bool(rows) and (date.today() - rows[-1].day).days > STALE_DAYS,
             "sentiment": _sentiment_counts(s, t.code),
-            "top_issue": {"id": top[0], "headline": top[1]["headline"]} if top else None,
+            "top_issue": {"no": top[0], "headline": top[1]["headline"]} if top else None,
         })
     return out
 
@@ -174,7 +179,7 @@ def _collection_status(s: Session) -> dict:
 
 
 @app.get("/dashboard")
-def dashboard(s: Session = Depends(db)):
+def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_user)):
     """마켓 대시보드 한 화면에 필요한 값 전부. 결론(요약)이 위, 근거(표·히트맵)가 아래."""
     issues = s.scalars(select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=24))
                        .order_by(desc(Issue.importance)).limit(6)).all()
@@ -182,12 +187,13 @@ def dashboard(s: Session = Depends(db)):
                 s.scalar(select(Article.id).where(Article.source.like("demo%")).limit(1)))
     return {
         "generated_at": _now(),
+        "user": user_json(user) if user else None,
         "demo": demo,
         "collection": _collection_status(s),
         "market_open": is_market_open(),
         "indices": _indices(s),
         "brief": build_market_brief(s),
-        "watchlist": _watchlist(s),
+        "watchlist": _watchlist(s, user),
         "sectors": _sectors(s),
         "issues": [_issue_card(s, i, with_articles=False) for i in issues],
     }
@@ -202,9 +208,48 @@ def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
                         "volume": r.volume, "change_pct": r.change_pct} for r in rows]}
 
 
-@app.get("/market/watchlist")
-def watchlist(s: Session = Depends(db)):
-    return _watchlist(s)
+@app.get("/me/watchlist")
+def my_watchlist(s: Session = Depends(db), user: User = Depends(current_user)):
+    return _watchlist(s, user)
+
+
+class WatchIn(BaseModel):
+    holding: bool = False
+
+
+@app.put("/me/watchlist/{code}")
+def add_watch(code: str, bg: BackgroundTasks, body: WatchIn | None = None, s: Session = Depends(db),
+              user: User = Depends(current_user)):
+    """관심종목 등록(☆) 또는 보유 표시 변경. 처음 수집하는 종목이면 과거 시세를 백그라운드로 채운다."""
+    from ..jobs import tasks
+    t = s.get(Ticker, code)
+    if t is None:
+        raise HTTPException(404, f"종목 {code} 을(를) 찾을 수 없습니다")
+    row = s.get(UserWatchlist, (user.id, code))
+    if row is None:
+        limit = get_settings().max_watchlist_per_user
+        n = s.scalar(select(func.count()).select_from(UserWatchlist).where(UserWatchlist.user_id == user.id))
+        if n >= limit:
+            raise HTTPException(400, f"관심종목은 계정당 {limit}개까지 등록할 수 있습니다")
+        row = UserWatchlist(user_id=user.id, ticker=code, holding=False)
+        s.add(row)
+    if body is not None:   # 본문 없이 부르면 보유 표시는 그대로 둔다
+        row.holding = body.holding
+    holding = row.holding
+    s.commit()
+    new_target = not t.in_watchlist
+    tasks.sync_watchlist()
+    if new_target or not s.scalar(select(Price.day).where(Price.symbol == code).limit(1)):
+        bg.add_task(tasks.job_backfill_ticker, code)
+    return {"code": code, "name": t.name, "holding": holding}
+
+
+@app.delete("/me/watchlist/{code}", status_code=204)
+def remove_watch(code: str, s: Session = Depends(db), user: User = Depends(current_user)):
+    from ..jobs import tasks
+    s.execute(delete(UserWatchlist).where(UserWatchlist.user_id == user.id, UserWatchlist.ticker == code))
+    s.commit()
+    tasks.sync_watchlist()
 
 
 @app.get("/market/indices")
@@ -218,14 +263,32 @@ def sectors(s: Session = Depends(db)):
 
 
 @app.get("/tickers")
-def tickers(s: Session = Depends(db)):
-    """이슈 브리핑 필터용: 관심종목 + 최근 이슈에 등장한 종목."""
+def tickers(s: Session = Depends(db), user: User | None = Depends(optional_user)):
+    """이슈 브리핑 필터용: 내 관심종목 + 최근 이슈에 등장한 종목."""
     since = _now() - timedelta(hours=72)
-    rows = s.execute(select(Ticker.code, Ticker.name).where(
-        Ticker.in_watchlist.is_(True) | Ticker.code.in_(
-            select(IssueTicker.ticker).join(Issue).where(Issue.last_seen >= since)))
-        .order_by(Ticker.name)).all()
+    cond = Ticker.code.in_(select(IssueTicker.ticker).join(Issue).where(Issue.last_seen >= since))
+    if user:
+        cond = cond | Ticker.code.in_(select(UserWatchlist.ticker).where(UserWatchlist.user_id == user.id))
+    rows = s.execute(select(Ticker.code, Ticker.name).where(cond).order_by(Ticker.name)).all()
     return [{"code": c, "name": n} for c, n in rows]
+
+
+@app.get("/tickers/search")
+def search_tickers(q: str, limit: int = 20, s: Session = Depends(db),
+                   user: User | None = Depends(optional_user)):
+    """관심종목 추가용 종목 검색 (종목명·코드). 이름이 검색어로 시작하는 종목을 먼저."""
+    q = q.strip()
+    if not q:
+        return []
+    like = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = s.execute(select(Ticker.code, Ticker.name, Ticker.market).where(or_(
+        Ticker.name.ilike(f"%{like}%", escape="\\"), Ticker.code.like(f"{like}%", escape="\\")))
+        .order_by(Ticker.name.ilike(f"{like}%", escape="\\").desc(), func.length(Ticker.name), Ticker.name)
+        .limit(min(limit, 50))).all()
+    mine = set()
+    if user:
+        mine = set(s.scalars(select(UserWatchlist.ticker).where(UserWatchlist.user_id == user.id)).all())
+    return [{"code": c, "name": n, "market": m, "watched": c in mine} for c, n, m in rows]
 
 
 # ── 이슈 브리핑 ───────────────────────────────────────────────
@@ -241,9 +304,9 @@ def list_issues(hours: int = 24, limit: int = 30, ticker: str | None = None, sen
     return [_issue_card(s, i) for i in issues]
 
 
-@app.get("/issues/{issue_id}")
-def get_issue(issue_id: int, s: Session = Depends(db)):
-    i = s.get(Issue, issue_id)
+@app.get("/issues/{issue_no}")
+def get_issue(issue_no: int, s: Session = Depends(db)):
+    i = s.scalar(select(Issue).where(Issue.no == issue_no))
     if not i:
         raise HTTPException(404)
     return _issue_card(s, i)
@@ -276,7 +339,7 @@ def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
     sources = [{"publisher": p, "at": t} for p, t in first_by_pub.items()]
 
     card = {
-        "id": i.id, "importance": i.importance, "sentiment": i.sentiment or "neutral",
+        "no": i.no, "importance": i.importance, "sentiment": i.sentiment or "neutral",
         "article_count": i.article_count, "publisher_count": i.publisher_count,
         "has_disclosure": i.has_disclosure, "first_seen": i.first_seen, "last_seen": i.last_seen,
         "tickers": [{"code": c, "name": n} for c, n in tickers],
@@ -290,7 +353,7 @@ def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
         # 저작권: 제목·매체·시각·링크만 노출 (본문 없음). 요약에 쓰인 근거 기사를 먼저.
         used = set((summ.payload.get("source_article_ids") if summ else []) or [])
         card["articles"] = sorted(
-            [{"id": a.id, "title": a.title, "publisher": a.publisher, "url": a.url,
+            [{"no": a.no, "title": a.title, "publisher": a.publisher, "url": a.url,
               "published_at": a.published_at, "kind": a.kind, "sentiment": a.sentiment,
               "cited": str(a.id) in used} for a in arts],
             key=lambda x: (not x["cited"], x["published_at"]))

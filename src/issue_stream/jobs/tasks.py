@@ -17,6 +17,7 @@ from ..core.config import get_settings, load_yaml
 from ..core.market_calendar import is_market_open, is_trading_day
 from ..db.models import (
     ApiUsage, Article, ArticleBody, DartCorpCode, JobRun, MacroSeries, Price, SectorIndex, Ticker,
+    UserSession, UserWatchlist,
 )
 from ..db.ops import upsert
 from ..db.session import session_scope
@@ -76,9 +77,11 @@ def job_news_pipeline() -> int:
 
 
 # ── 시세 (네이버 → 야후 → FDR, 키·로그인 불필요) ─────────────────
-def _watchlist_codes() -> list[tuple[str, str | None]]:
+def _watchlist_codes(codes: list[str] | None = None) -> list[tuple[str, str | None]]:
+    q = select(Ticker.code, Ticker.market)
+    q = q.where(Ticker.code.in_(codes)) if codes is not None else q.where(Ticker.in_watchlist.is_(True))
     with session_scope() as db:
-        return list(db.execute(select(Ticker.code, Ticker.market).where(Ticker.in_watchlist.is_(True))).all())
+        return list(db.execute(q).all())
 
 
 def _save_rows(model, rows: list[dict], keys: list[str]) -> None:
@@ -87,10 +90,11 @@ def _save_rows(model, rows: list[dict], keys: list[str]) -> None:
             upsert(db, model, r, keys)
 
 
-def save_watchlist_prices(n: int) -> tuple[int, list[str]]:
+def save_watchlist_prices(n: int, codes: list[str] | None = None) -> tuple[int, list[str]]:
+    """관심종목(codes 를 주면 그 종목만) 최근 n 거래일 시세 저장."""
     from ..collectors.quotes import fetch_chain, stock_chain, to_price_rows
     total, problems = 0, []
-    for code, market in _watchlist_codes():
+    for code, market in _watchlist_codes(codes):
         bars, src, errs = fetch_chain(stock_chain(code, market), n + 1)
         if not bars:
             problems.append(f"{code}: " + " / ".join(errs))
@@ -172,6 +176,13 @@ def job_backfill_prices(days: int = 130) -> int:
     return _raise_if_nothing(n1 + n2 + n3, p1 + p2 + p3, "과거 시세")
 
 
+@tracked
+def job_backfill_ticker(code: str, days: int = 130) -> int:
+    """화면에서 관심종목을 새로 등록했을 때 그 종목의 과거 시세만 채운다."""
+    n, problems = save_watchlist_prices(days, [code])
+    return _raise_if_nothing(n, problems, f"과거 시세 {code}")
+
+
 # ── 거시 지표 ──────────────────────────────────────────────────
 @tracked
 def job_macro() -> int:
@@ -190,16 +201,27 @@ def job_macro() -> int:
 
 # ── 마스터 데이터 ──────────────────────────────────────────────
 def sync_watchlist() -> int:
-    """watchlist.yaml → tickers. 관심종목·보유 표시를 설정 파일과 맞춘다 (빠름, 네트워크 불필요)."""
+    """tickers 의 수집 대상(in_watchlist)·보유(holding) 표시를 다시 계산한다 (빠름, 네트워크 불필요).
+
+    수집 대상 = watchlist.yaml (계정과 무관한 기본 종목) + 모든 계정의 관심종목.
+    보유 = yaml 의 holding + 어느 계정이든 보유로 표시한 종목. 중요도 가산점에 쓰인다.
+    """
     wl = load_yaml("watchlist.yaml").get("watchlist", [])
-    codes = {str(w["code"]) for w in wl}
     with session_scope() as db:
-        db.execute(update(Ticker).where(Ticker.code.not_in(codes)).values(in_watchlist=False, holding=False))
         for w in wl:
             upsert(db, Ticker, dict(code=str(w["code"]), name=w["name"], aliases=w.get("aliases", []),
-                                    market=w.get("market"), in_watchlist=True, holding=bool(w.get("holding"))),
-                   ["code"], ["name", "aliases", "in_watchlist", "holding"])
-    return len(wl)
+                                    market=w.get("market")), ["code"], ["name", "aliases"])
+        codes = {str(w["code"]) for w in wl}
+        holds = {str(w["code"]) for w in wl if w.get("holding")}
+        for code, holding in db.execute(select(UserWatchlist.ticker, UserWatchlist.holding)).all():
+            codes.add(code)
+            if holding:
+                holds.add(code)
+        db.execute(update(Ticker).where(Ticker.code.not_in(holds)).values(holding=False))
+        db.execute(update(Ticker).where(Ticker.code.not_in(codes)).values(in_watchlist=False))
+        db.execute(update(Ticker).where(Ticker.code.in_(codes)).values(in_watchlist=True))
+        db.execute(update(Ticker).where(Ticker.code.in_(holds)).values(holding=True))
+    return len(codes)
 
 
 @tracked
@@ -250,4 +272,5 @@ def job_retention() -> int:
             Article.published_at < now - timedelta(days=s.article_retention_days))).rowcount or 0
         n3 = pipeline.close_stale_issues(db)
         db.execute(delete(JobRun).where(JobRun.started_at < now - timedelta(days=30)))
+        db.execute(delete(UserSession).where(UserSession.expires_at < now))
     return n1 + n2 + n3

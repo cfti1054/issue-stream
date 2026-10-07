@@ -42,7 +42,7 @@ def build_market_brief(db: Session, hours: int = 24, top: int = 3) -> dict:
         sm = db.scalar(select(IssueSummaryRow).where(IssueSummaryRow.issue_id == i.id,
                                                      IssueSummaryRow.is_current.is_(True)))
         if sm:
-            bullets.append({"issue_id": i.id, "text": sm.payload["headline"],
+            bullets.append({"issue_no": i.no, "text": sm.payload["headline"],
                             "sentiment": i.sentiment or "neutral", "importance": i.importance})
 
     if issues:

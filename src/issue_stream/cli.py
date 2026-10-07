@@ -13,6 +13,8 @@
   issue-stream seed-demo         화면 확인용 가상 데이터 넣기 (--clear 로 삭제)
   issue-stream scheduler          스케줄러만 실행 (API 를 따로 띄울 때)
   issue-stream api                API 서버만 실행
+  issue-stream erd                docs/ERD.md 를 models.py 에서 다시 생성 (--check: 최신인지 검사)
+  issue-stream user add <아이디>   로그인 계정 생성 (관리자용). passwd·list·disable·enable·delete
 """
 from __future__ import annotations
 
@@ -142,7 +144,7 @@ def cmd_issues(a):
                             .order_by(desc(Issue.importance)).limit(a.limit)).all():
             sm = db.scalar(select(IssueSummaryRow).where(IssueSummaryRow.issue_id == i.id,
                                                          IssueSummaryRow.is_current.is_(True)))
-            print(f"\n[{i.importance:5.1f}] #{i.id} 기사 {i.article_count} / 매체 {i.publisher_count} "
+            print(f"\n[{i.importance:5.1f}] #{i.no} 기사 {i.article_count} / 매체 {i.publisher_count} "
                   f"/ {i.sentiment or '-'}")
             if sm:
                 print(f"  ▶ {sm.payload['headline']}")
@@ -225,6 +227,59 @@ def cmd_api(a):
     uvicorn.run("issue_stream.api.main:app", host=a.host, port=a.port, reload=a.reload)
 
 
+def _ask_password() -> str:
+    import getpass
+    pw = getpass.getpass("비밀번호: ")
+    if sys.stdin.isatty() and getpass.getpass("비밀번호 확인: ") != pw:
+        sys.exit("비밀번호가 서로 다릅니다.")
+    return pw
+
+
+def cmd_user(a):
+    from . import accounts
+    migrate()
+    try:
+        if a.action == "list":
+            rows = accounts.list_users()
+            if not rows:
+                print("계정이 없습니다. issue-stream user add <아이디>")
+            for u in rows:
+                last = f"{u['last_login_at']:%Y-%m-%d %H:%M}" if u["last_login_at"] else "-"
+                print(f"  {'' if u['active'] else '(비활성) '}{u['username']:20s} {u['name'] or '':10s} "
+                      f"관심종목 {u['watchlist']:3d}  마지막 로그인 {last}")
+            return
+        if not a.username:
+            sys.exit(f"아이디를 입력하세요: issue-stream user {a.action} <아이디>")
+        if a.action == "add":
+            accounts.create_user(a.username, _ask_password(), a.name, default_watchlist=not a.empty)
+            print(f"계정 생성: {a.username}" + ("" if a.empty else " (watchlist.yaml 종목을 관심종목으로 등록)"))
+        elif a.action == "passwd":
+            accounts.set_password(a.username, _ask_password())
+            print("비밀번호를 바꿨습니다. 기존 로그인은 모두 해제됩니다.")
+        elif a.action in ("disable", "enable"):
+            accounts.set_active(a.username, a.action == "enable")
+            print(f"{a.username}: {'활성' if a.action == 'enable' else '비활성'}")
+        elif a.action == "delete":
+            if input(f"{a.username} 계정과 관심종목을 삭제합니다. 계속? (y/N) ").lower() == "y":
+                accounts.delete_user(a.username)
+                print("삭제했습니다.")
+    except accounts.AccountError as e:
+        sys.exit(str(e))
+
+
+def cmd_erd(a):
+    from . import erd
+    if missing := erd.unassigned_tables():
+        sys.exit(f"erd.py 의 DOMAINS 에 테이블을 추가하세요: {', '.join(sorted(missing))}")
+    if a.check:
+        if not erd.is_up_to_date():
+            sys.exit("docs/ERD.md 가 models.py 와 다릅니다. issue-stream erd 로 다시 만드세요.")
+        print("docs/ERD.md 최신 상태")
+        return
+    erd.write()
+    print(f"생성: {erd.ERD_PATH}")
+
+
 def main(argv: list[str] | None = None) -> None:
     from .core.logging import setup_logging
     setup_logging()
@@ -262,6 +317,15 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--reload", action="store_true")
     ap.set_defaults(fn=cmd_api)
+    e = sub.add_parser("erd", help="docs/ERD.md 생성")
+    e.add_argument("--check", action="store_true", help="최신이 아니면 실패")
+    e.set_defaults(fn=cmd_erd)
+    u = sub.add_parser("user", help="로그인 계정 관리")
+    u.add_argument("action", choices=["add", "passwd", "list", "disable", "enable", "delete"])
+    u.add_argument("username", nargs="?", help="로그인 아이디")
+    u.add_argument("--name", help="표시 이름")
+    u.add_argument("--empty", action="store_true", help="add: 관심종목 없이 시작 (기본은 watchlist.yaml 복사)")
+    u.set_defaults(fn=cmd_user)
     a = p.parse_args(argv)
     a.fn(a)
 

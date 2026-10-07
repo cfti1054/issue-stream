@@ -33,6 +33,17 @@ npm run dev                    # http://localhost:3000
 |---|---|---|
 | `API_BASE` | `http://127.0.0.1:8000` | FastAPI 주소. 화면은 서버에서 API를 호출하므로 브라우저에는 노출되지 않는다 |
 | `NEXT_PUBLIC_REFRESH_SECONDS` | `60` | 자동 새로고침 주기(초). 탭이 보일 때만 갱신. `0` 이면 끔 |
+| `COOKIE_SECURE` | 운영 빌드면 `true` | 로그인 쿠키를 https 에서만 보낸다. 로컬에서 `npm start`(http)로 띄우는데 로그인이 안 되면 `false` |
+
+## 로그인·관심종목
+
+- `/signup` 가입 → 바로 로그인된다. 가입을 닫으면(API 의 `SIGNUP_ENABLED=false`) 안내만 보이고 `issue-stream user add <아이디>` 로만 계정을 만든다. `SIGNUP_INVITE_CODE` 가 있으면 초대 코드 칸이 나온다.
+- `/login` 에서 로그인.
+- 로그인 결과 토큰은 **HttpOnly 쿠키**(`is_session`)에 저장되고, Next 서버가 API 를 부를 때 `Authorization: Bearer` 로 넘긴다.
+  브라우저는 API 주소도 토큰도 모른다. 쓰기 요청(로그인·☆)은 서버 액션(`app/actions.ts`)으로 보낸다.
+- 비로그인: 지수·AI 요약·주요 뉴스·이슈 브리핑은 그대로 보이고, 관심종목 칸에 로그인 안내가 뜬다.
+- 로그인: 관심종목 칸의 검색창에서 종목을 찾아 ☆, 뉴스의 종목 태그 → 차트 제목 옆 ☆ 로도 등록. ★ 를 누르면 해제,
+  `보유` 를 누르면 보유 종목 표시(그 종목 뉴스의 중요도 가산점).
 
 ## 설계 원칙
 

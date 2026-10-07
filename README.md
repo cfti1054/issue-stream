@@ -44,7 +44,17 @@ DART(선택)                                         공시는 종목 기준 편
 
 - **마켓 대시보드** `/` : 지수 스트립 → AI 요약 → 관심종목·가격 차트 → 주요 뉴스·업종 히트맵
 - **이슈 브리핑** `/issues` : 이슈 카드(요약·출처·종목 태그·보도량 추이·근거 기사 펼치기), 기간·감성·종목 필터
-- 관심종목은 `config/watchlist.yaml` 에서 바꾸고 수집기를 다시 시작하면 과거 시세까지 자동으로 채워진다.
+- **관심종목은 계정별**이다. 로그인한 뒤 대시보드의 검색창이나 차트 제목 옆 ☆ 를 눌러 등록하면
+  그 종목의 과거 시세를 바로 채우고 뉴스 수집 대상에도 넣는다. 로그인하지 않아도 지수·AI 요약·이슈 브리핑은 볼 수 있다.
+- 계정은 `/signup` 가입 화면에서 만든다. `.env` 로 가입을 닫거나(`SIGNUP_ENABLED=false`)
+  초대 코드를 아는 사람만 받을 수 있다(`SIGNUP_INVITE_CODE`). 관리자는 CLI 로도 관리한다:
+
+  ```bash
+  issue-stream user add myid --name 나   # 비밀번호를 물어본다 (아이디: 영문 소문자로 시작 4~20자)
+  issue-stream user list | passwd | disable | enable | delete
+  ```
+
+- `config/watchlist.yaml` 은 계정과 무관하게 항상 수집하는 기본 종목이자, 새 계정의 초기 관심종목이다.
 - 화면 설명은 [web/README.md](web/README.md)
 
 ## 빠른 시작 (단계별)
@@ -79,7 +89,7 @@ pytest                            # 테스트 (SQLite 전체 흐름 포함)
 issue-stream/
 ├── config/
 │   ├── sources.yaml          # 뉴스 RSS·구글 뉴스·지수 스트립·업종 ETF (무료 소스 on/off)
-│   └── watchlist.yaml        # 관심종목·별칭·보유 여부
+│   └── watchlist.yaml        # 기본 수집 종목·별칭·보유 여부 (새 계정의 초기 관심종목)
 ├── src/issue_stream/
 │   ├── core/
 │   │   ├── config.py         # .env 설정 + 유료 API 안전장치 (ALLOW_PAID_APIS)
@@ -133,6 +143,7 @@ issue-stream/
 | **API 쿼터 관리** | 무료 API 일일 호출 수 집계·한도 전 차단, 재시작 후 복원 | `core/http.py`, `api_usage` |
 | **재시도** | 일시 오류(429/5xx/네트워크) 지수 백오프 재시도, 한 소스 실패가 전체를 멈추지 않음 | `core/http.py`, `pipeline/run.py` |
 | **스키마 마이그레이션** | Alembic (SQLite·PG 공통) | `migrations/` |
+| **DB 구조 (ERD)** | `models.py` 에서 자동 생성. 모델을 바꾸면 `issue-stream erd` 후 함께 커밋 (어긋나면 pytest 실패) | [docs/ERD.md](docs/ERD.md) |
 | **설치 없는 DB** | 기본 SQLite, 예전 Docker PG 주소면 연결 실패 시 자동 대체 | `db/session.py` |
 | **KRX 차단 대응** | 시세 소스 체인 + 10일 넘게 멈춘 소스 자동 배제, 업종은 ETF 로 대체 | `collectors/quotes.py` |
 | **수집 상태 표시** | 첫 실행·수집 실패를 대시보드 상단 배너로 안내 | `/dashboard` `collection` |

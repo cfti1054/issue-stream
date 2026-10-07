@@ -78,13 +78,25 @@ class Settings(BaseSettings):
     article_body_ttl_hours: int = 24
     article_retention_days: int = 180
 
+    session_days: int = 30          # 로그인 유지 기간
+    signup_enabled: bool = True     # false 면 가입 화면을 닫고 CLI(issue-stream user add)로만 계정 생성
+    signup_invite_code: str = ""    # 값이 있으면 이 코드를 아는 사람만 가입
+    max_watchlist_per_user: int = 50  # 계정별 관심종목 상한 (수집 대상·외부 요청 수가 무한히 늘지 않도록)
+
     log_level: str = "INFO"
     tz: str = "Asia/Seoul"
 
     @field_validator("database_url", mode="before")
     @classmethod
     def empty_database_url_is_sqlite(cls, v: object) -> object:
-        return DEFAULT_DATABASE_URL if v in ("", None) else v
+        if v in ("", None):
+            return DEFAULT_DATABASE_URL
+        # Railway·Heroku 등이 주는 postgres(ql):// 주소는 psycopg2 를 찾으므로 설치된 psycopg(3)로 바꾼다
+        if isinstance(v, str):
+            for prefix in ("postgres://", "postgresql://"):
+                if v.startswith(prefix):
+                    return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     @field_validator("cluster_sim_threshold", mode="before")
     @classmethod

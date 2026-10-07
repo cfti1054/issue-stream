@@ -6,11 +6,15 @@
 from __future__ import annotations
 
 import html
+import logging
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+from ..core.config import load_yaml
 from ..core.schemas import RawDoc
+
+log = logging.getLogger(__name__)
 
 
 class Collector(ABC):
@@ -19,6 +23,25 @@ class Collector(ABC):
     @abstractmethod
     def fetch(self, since: datetime) -> list[RawDoc]:
         ...
+
+
+def watchlist_names() -> list[str]:
+    """검색어로 쓸 관심종목 이름: watchlist.yaml + 모든 계정의 관심종목 (DB tickers.in_watchlist).
+
+    DB 를 쓸 수 없을 때(collect --dry-run 등)는 watchlist.yaml 만 쓴다.
+    """
+    names = [w["name"] for w in load_yaml("watchlist.yaml").get("watchlist", [])]
+    try:
+        from sqlalchemy import select
+
+        from ..db.models import Ticker
+        from ..db.session import session_scope
+        with session_scope() as db:
+            names += db.scalars(select(Ticker.name).where(Ticker.in_watchlist.is_(True))
+                                .order_by(Ticker.name)).all()
+    except Exception as e:  # noqa: BLE001
+        log.debug("DB 관심종목을 읽지 못해 watchlist.yaml 만 사용: %s", e)
+    return list(dict.fromkeys(names))
 
 
 _TAG = re.compile(r"<[^>]+>")
