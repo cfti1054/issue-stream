@@ -3,11 +3,13 @@
 KRX 정보데이터시스템은 2024-12 부터 로그인이 필요해 pykrx·FinanceDataReader 의 KRX 기반 기능이
 막혔다. 그래서 다음 순서로 시도하고, 처음 성공한 소스를 쓴다.
 
-  1) 네이버 증권 모바일 API (국내 종목·코스피/코스닥·환율)
+  1) 네이버 증권 API (국내 종목·코스피/코스닥·환율, 미국 종목은 해외주식 API)
   2) 야후 파이낸스 (yfinance)  — 해외 지수, 국내 종목 대체
   3) FinanceDataReader        — 마지막 대체
 
-소스 표기:  "naver:stock:005930", "naver:index:KOSPI", "naver:fx:FX_USDKRW", "yahoo:^GSPC", "fdr:US500"
+소스 표기:  "naver:stock:005930", "naver:world:NVDA.O", "naver:index:KOSPI", "naver:fx:FX_USDKRW",
+           "yahoo:^GSPC", "fdr:US500"
+미국 종목은 tickers.code 가 티커(NVDA), tickers.quote_code 가 네이버 조회 코드(NVDA.O, NYSE 는 대개 접미사 없음).
 `issue-stream doctor` 로 PC 에서 각 소스가 실제로 응답하는지 확인할 수 있다.
 """
 from __future__ import annotations
@@ -18,10 +20,12 @@ from datetime import date, datetime, timedelta
 from typing import TypedDict
 
 from ..core.http import get_json
+from ..core.market_calendar import US_MARKETS, is_us_market
 
 log = logging.getLogger(__name__)
 
 NAVER = "https://m.stock.naver.com"
+NAVER_WORLD = "https://api.stock.naver.com"
 PAGE = 60
 
 
@@ -83,7 +87,7 @@ def _rows(payload) -> list[dict]:
 
 
 def naver_bar(r: dict) -> Bar | None:
-    day = parse_day(_first(r, "localTradedAt", "localTradeAt", "tradeDate", "date", "bizdate"))
+    day = parse_day(_first(r, "localTradedAt", "localTradeAt", "localDate", "tradeDate", "date", "bizdate"))
     close = num(_first(r, "closePrice", "close", "tradePrice", "price"))
     if day is None or close is None:
         return None
@@ -120,7 +124,19 @@ def naver(kind: str, code: str, n: int) -> list[Bar]:
         return _naver_paged(f"/api/index/{code}/price", n)
     if kind == "fx":
         return _naver_paged("/front-api/v1/marketIndex/prices", n, {"category": "exchange", "reutersCode": code})
+    if kind == "world":
+        return naver_world(code, n)
     raise ValueError(kind)
+
+
+def naver_world(quote_code: str, n: int) -> list[Bar]:
+    """미국 등 해외 종목 일봉 (장중에는 당일 봉이 현재가로 갱신된다)."""
+    end = date.today() + timedelta(days=1)
+    start = date.today() - timedelta(days=int(n * 1.6) + 10)
+    rows = _rows(get_json("naver", f"{NAVER_WORLD}/chart/foreign/item/{quote_code}/day",
+                          params={"startDateTime": start.strftime("%Y%m%d0000"),
+                                  "endDateTime": end.strftime("%Y%m%d0000")}, retries=2))
+    return _dedupe_sort([b for b in (naver_bar(r) for r in rows) if b])[-n:]
 
 
 # ── 2) 야후 ───────────────────────────────────────────────────
@@ -230,7 +246,10 @@ def fetch_chain(chain: list[str], n: int, max_age_days: int = MAX_AGE_DAYS
     return [], None, errors
 
 
-def stock_chain(code: str, market: str | None = None) -> list[str]:
+def stock_chain(code: str, market: str | None = None, quote_code: str | None = None) -> list[str]:
+    if is_us_market(market):
+        # 야후는 클래스 주식을 BRK-B 처럼 쓴다
+        return [f"naver:world:{quote_code or code}", f"yahoo:{code.replace('.', '-')}", f"fdr:{code}"]
     yh = [f"yahoo:{code}.KQ", f"yahoo:{code}.KS"] if market == "KOSDAQ" else [f"yahoo:{code}.KS", f"yahoo:{code}.KQ"]
     return [f"naver:stock:{code}", *yh, f"fdr:{code}"]
 
@@ -268,7 +287,27 @@ def to_price_rows(symbol: str, bars: list[Bar], source: str) -> list[dict]:
     return rows
 
 
-# ── 종목 마스터 (태깅 사전) ────────────────────────────────────
+# ── 종목 마스터 (태깅 사전·종목 검색) ─────────────────────────────
+def naver_world_listing(exchange: str, max_pages: int = 40) -> list[dict]:
+    """미국 거래소(NASDAQ·NYSE·AMEX) 시가총액순 종목 목록. 한글 이름이 있으면 한글로."""
+    out: dict[str, dict] = {}
+    for page in range(1, max_pages + 1):
+        rows = _rows(get_json("naver", f"{NAVER_WORLD}/stock/exchange/{exchange}/marketValue",
+                              params={"page": page, "pageSize": 100}, retries=2))
+        for r in rows:
+            sym, quote = _first(r, "symbolCode"), _first(r, "reutersCode")
+            name = _first(r, "stockName", "stockNameEng")
+            if sym and quote and name and len(str(sym)) <= 12:
+                out[str(sym)] = {"code": str(sym), "name": str(name)[:100], "market": exchange,
+                                 "quote_code": str(quote)[:20]}
+        if len(rows) < 100:
+            break
+    return list(out.values())
+
+
+US_EXCHANGES = US_MARKETS
+
+
 def naver_listing(market: str, max_pages: int = 40) -> list[dict]:
     """시가총액순 상장 종목 목록 (best-effort, 응답 형식을 알 수 없으면 빈 목록)."""
     out: dict[str, dict] = {}

@@ -20,7 +20,7 @@ DART(선택)                                         공시는 종목 기준 편
 | 요약 | `extractive` LLM 없이 문장 선택 | `ollama` 로컬 LLM | `anthropic` Claude Haiku/Sonnet |
 | 감성 | `lexicon` 금융 어휘 사전 | `hf_local` KR-FinBert-SC | 요약 LLM 판단 사용 |
 | 시세 | 네이버 모바일 → 야후 → FDR (키 불필요) | KIS 실시간 (계좌 필요, 무료) | - |
-| 업종 | 업종 ETF 등락률 (KODEX·TIGER) | - | - |
+| 업종 | 업종 ETF 등락률 (국내 KODEX·TIGER, 미국 섹터 SPDR 등) | - | - |
 | 공시 | - | OPEN DART (무료 키) | - |
 | 거시 | - | ECOS, FRED (무료 키) | - |
 | 뉴스 | 언론사 RSS + 구글 뉴스 RSS (키 불필요) | 네이버 검색 API (무료 키) | 빅카인즈 (기관 계약) |
@@ -43,6 +43,7 @@ DART(선택)                                         공시는 종목 기준 편
 수집이 막혀도 화면을 먼저 보고 싶으면 `start-dashboard.cmd -Demo` (가상 데이터, `issue-stream seed-demo --clear` 로 삭제).
 
 - **마켓 대시보드** `/` : 지수 스트립 → AI 요약 → 관심종목·가격 차트 → 주요 뉴스·업종 히트맵
+  (관심종목·히트맵은 **국내 / 미국** 탭. 미국 종목은 NASDAQ·NYSE·AMEX, 시세는 네이버 해외주식 → 야후)
 - **이슈 브리핑** `/issues` : 이슈 카드(요약·출처·종목 태그·보도량 추이·근거 기사 펼치기), 기간·감성·종목 필터
 - **관심종목은 계정별**이다. 로그인한 뒤 대시보드의 검색창이나 차트 제목 옆 ☆ 를 눌러 등록하면
   그 종목의 과거 시세를 바로 채우고 뉴스 수집 대상에도 넣는다. 로그인하지 않아도 지수·AI 요약·이슈 브리핑은 볼 수 있다.
@@ -88,7 +89,7 @@ pytest                            # 테스트 (SQLite 전체 흐름 포함)
 ```
 issue-stream/
 ├── config/
-│   ├── sources.yaml          # 뉴스 RSS·구글 뉴스·지수 스트립·업종 ETF (무료 소스 on/off)
+│   ├── sources.yaml          # 뉴스 RSS·구글 뉴스·지수 스트립·업종 ETF(국내·미국) (무료 소스 on/off)
 │   └── watchlist.yaml        # 기본 수집 종목·별칭·보유 여부 (새 계정의 초기 관심종목)
 ├── src/issue_stream/
 │   ├── core/

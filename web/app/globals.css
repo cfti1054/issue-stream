@@ -354,3 +354,10 @@ details.evidence[open] summary::before { transform: rotate(90deg); }
 /* 글자 링크만 강조색. .btn(파란 배경 흰 글자)에는 적용하지 않는다 */
 .login-card a:not(.btn), .empty a:not(.btn) { color: var(--accent); font-weight: 600; }
 .login-form small { font-weight: 400; }
+
+/* 관심종목: 5개를 넘으면 표 안에서 스크롤 (머리글 고정) */
+.wl-scroll { max-height: 384px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.wl-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+/* 카드 제목 옆 작은 탭 (국내 / 미국) */
+.chips-s a { padding: 3px 9px; font-size: 11px; }
+.section-title .right.chips { color: inherit; }

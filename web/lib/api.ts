@@ -43,6 +43,8 @@ export interface WatchItem {
   code: string;
   name: string;
   holding: boolean;
+  market: string | null;
+  region: "kr" | "us";
   close: number | null;
   change: number | null;
   change_pct: number | null;
@@ -138,10 +140,12 @@ export interface Dashboard {
   demo: boolean;
   collection: CollectionStatus;
   market_open: boolean;
+  us_market_open: boolean;
   indices: IndexItem[];
   brief: MarketBrief;
   watchlist: WatchItem[];
-  sectors: { day: string | null; basis: "etf" | "index"; items: SectorItem[] };
+  sectors: SectorBlock;
+  sectors_us: SectorBlock;
   issues: IssueCard[];
 }
 
@@ -155,9 +159,17 @@ export interface PricePoint {
   change_pct: number | null;
 }
 
+export interface SectorBlock {
+  day: string | null;
+  basis: "etf" | "index" | "us_etf";
+  items: SectorItem[];
+}
+
 export interface PriceSeries {
   symbol: string;
   name: string;
+  market: string | null;
+  is_stock: boolean;
   points: PricePoint[];
 }
 

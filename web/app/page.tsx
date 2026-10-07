@@ -1,7 +1,9 @@
 // 마켓 대시보드: 결론(지수·AI 요약)이 위, 근거(관심종목·차트·뉴스·업종)가 아래
 import Link from "next/link";
 import { ApiError, api, type Dashboard, type PriceSeries } from "@/lib/api";
-import { INDEX_SYMBOLS, SENTI_LABEL, ago, dateKST, dir, pct, price, signed, timeKST } from "@/lib/format";
+import {
+  INDEX_SYMBOLS, SENTI_LABEL, ago, dateKST, dir, isUS, pct, price, signed, stockChange, stockPrice, timeKST,
+} from "@/lib/format";
 import { Heatmap, SentimentBar, Sparkline } from "@/components/charts";
 import PriceChart from "@/components/PriceChart";
 import ErrorBox from "@/components/ErrorBox";
@@ -10,8 +12,20 @@ import { HoldToggle, StarButton, WatchSearch } from "@/components/watch";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ ticker?: string }> }) {
-  const { ticker } = await searchParams;
+type Q = { ticker?: string; wl?: string; hm?: string };
+
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Q> }) {
+  const q = await searchParams;
+  const { ticker } = q;
+  // 관심종목·히트맵 탭 (?wl=us, ?hm=us). 다른 파라미터는 유지한 채 하나만 바꾼 주소
+  const region = q.wl === "us" ? "us" : "kr";
+  const hmRegion = q.hm === "us" ? "us" : "kr";
+  const href = (patch: Q) => {
+    const p = new URLSearchParams();
+    const m: Q = { ...q, ...patch };
+    (Object.keys(m) as (keyof Q)[]).forEach((k) => { if (m[k]) p.set(k, m[k]!); });
+    return p.size ? `/?${p}` : "/";
+  };
   let d: Dashboard;
   try {
     d = await api.dashboard();
@@ -19,8 +33,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} apiBase={api.apiBase} />;
   }
 
-  // 차트 대상: URL 의 ?ticker= (관심종목이 아니어도 됨) → 보유종목 → 첫 관심종목
-  const fallback = d.watchlist.find((w) => w.holding) ?? d.watchlist[0];
+  const shown = d.watchlist.filter((w) => w.region === region);
+  const count = { kr: d.watchlist.length - d.watchlist.filter((w) => w.region === "us").length,
+                  us: d.watchlist.filter((w) => w.region === "us").length };
+  const sectors = hmRegion === "us" ? d.sectors_us : d.sectors;
+
+  // 차트 대상: URL 의 ?ticker= (관심종목이 아니어도 됨) → 현재 탭의 보유종목 → 현재 탭의 첫 관심종목
+  const fallback = shown.find((w) => w.holding) ?? shown[0] ?? d.watchlist[0];
   const chartCode = ticker ?? fallback?.code;
   let series: PriceSeries | null = null;
   if (chartCode) {
@@ -31,17 +50,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const last = series?.points.at(-1);
   const prev = series?.points.at(-2);
   const selected = watched ?? (chartCode && series ? {
-    code: chartCode, name: series.name, close: last?.close ?? null, day: last?.day ?? null,
+    code: chartCode, name: series.name, market: series.market, close: last?.close ?? null, day: last?.day ?? null,
     change: last && prev ? last.close - prev.close : null, change_pct: last?.change_pct ?? null,
   } : undefined);
-  const isStock = !!chartCode && /^[0-9A-Z]{6}$/.test(chartCode);
+  const isStock = !!series?.is_stock;   // 지수·환율이면 ☆ 를 보여주지 않는다
   const now = Date.now();
 
   return (
     <>
       <div className="page-head">
         <h1>마켓 대시보드</h1>
-        <span className={`pill ${d.market_open ? "pill-live" : "pill-closed"}`}>{d.market_open ? "장중" : "장 마감"}</span>
+        <span className={`pill ${d.market_open ? "pill-live" : "pill-closed"}`}>국내 {d.market_open ? "장중" : "장 마감"}</span>
+        <span className={`pill ${d.us_market_open ? "pill-live" : "pill-closed"}`}>미국 {d.us_market_open ? "장중" : "장 마감"}</span>
         {d.demo && <span className="pill pill-demo" title="issue-stream seed-demo --clear 로 삭제">데모 데이터</span>}
         <p className="num-s">업데이트 {timeKST(d.generated_at)}</p>
       </div>
@@ -99,7 +119,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {/* 3. 관심종목 / 차트 */}
         <div className="grid-2">
           <section className="card pad" aria-label="관심종목">
-            <h2 className="section-title">관심종목 <small>뉴스 심리는 최근 24시간 기사 기준</small></h2>
+            <h2 className="section-title">관심종목 <small>뉴스 심리는 최근 24시간 기사 기준</small>
+              {d.user && (
+                <span className="right chips chips-s" role="group" aria-label="관심종목 지역">
+                  <Link href={href({ wl: undefined })} scroll={false} aria-current={region === "kr"}>국내 {count.kr}</Link>
+                  <Link href={href({ wl: "us" })} scroll={false} aria-current={region === "us"}>미국 {count.us}</Link>
+                </span>
+              )}
+            </h2>
             {d.user && <WatchSearch />}
             {!d.user ? (
               <div className="empty">
@@ -107,9 +134,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <p>로그인하면 원하는 종목을 ☆ 로 관심종목에 등록해 시세·뉴스 심리를 모아 볼 수 있습니다.</p>
                 <p className="num-s">계정이 없으면 <Link href="/signup">가입하기</Link></p>
               </div>
-            ) : d.watchlist.length === 0 ? (
-              <div className="empty">위 검색창에서 종목을 찾아 ☆ 를 누르거나, 뉴스의 종목 태그를 눌러 차트에서 ☆ 를 누르세요</div>
+            ) : shown.length === 0 ? (
+              <div className="empty">
+                {region === "us"
+                  ? "미국 종목은 위 검색창에서 이름(엔비디아)이나 티커(NVDA)로 찾아 ☆ 를 누르세요"
+                  : "위 검색창에서 종목을 찾아 ☆ 를 누르거나, 뉴스의 종목 태그를 눌러 차트에서 ☆ 를 누르세요"}
+              </div>
             ) : (
+              <div className="wl-scroll">
               <table className="wl">
                 <thead>
                   <tr>
@@ -121,12 +153,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   </tr>
                 </thead>
                 <tbody>
-                  {d.watchlist.map((w) => (
+                  {shown.map((w) => (
                     <tr key={w.code} aria-selected={w.code === selected?.code}>
                       <td className="star-cell"><StarButton code={w.code} name={w.name} watched size="s" /></td>
                       <td>
                         <div className="name-row">
-                          <Link className="row-link" href={`/?ticker=${w.code}`} scroll={false}>
+                          <Link className="row-link" href={href({ ticker: w.code })} scroll={false}>
                             <span className="name">{w.name}</span>
                             <span className="code">{w.code}</span>
                           </Link>
@@ -138,18 +170,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                         )}
                       </td>
                       <td className="r tnum" style={{ fontWeight: 600 }}>
-                        {price(w.close)}
+                        {stockPrice(w.close, w.market)}
                         {w.stale && w.day && <div className="stale">{dateKST(w.day)} 기준</div>}
                       </td>
                       <td className={`r tnum ${dir(w.change_pct)}`}>
                         <div style={{ fontWeight: 600 }}>{pct(w.change_pct)}</div>
-                        <div className="num-s">{signed(w.change)}</div>
+                        <div className="num-s">{stockChange(w.change, w.market)}</div>
                       </td>
                       <td className="hide-sm" style={{ width: 140 }}><SentimentBar c={w.sentiment} /></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </section>
 
@@ -163,13 +196,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <span className="right">종가 · 일봉</span>
                 </h2>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
-                  <span className="num-l tnum">{price(selected.close)}</span>
+                  <span className="num-l tnum">{stockPrice(selected.close, selected.market)}</span>
                   <span className={`num-m tnum ${dir(selected.change_pct)}`} style={{ fontWeight: 600 }}>
-                    {signed(selected.change)} ({pct(selected.change_pct)})
+                    {stockChange(selected.change, selected.market)} ({pct(selected.change_pct)})
                   </span>
                   <span className="muted num-s">{selected.day}</span>
                 </div>
-                {series.points.length > 0 ? <PriceChart points={series.points} />
+                {series.points.length > 0 ? <PriceChart points={series.points} isIndex={isUS(selected.market)} />
                   : <div className="empty">시세를 모으는 중입니다. 관심종목에 등록하면 과거 시세를 바로 채웁니다.</div>}
               </>
             ) : <div className="empty">{d.user ? "관심종목을 추가하면 가격 차트가 표시됩니다" : "뉴스의 종목 태그를 누르면 가격 차트가 표시됩니다"}</div>}
@@ -200,7 +233,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     </div>
                     <div className="tickers">
                       {it.tickers.slice(0, 2).map((t) => (
-                        <Link key={t.code} className="ticker" href={`/?ticker=${t.code}`} scroll={false}>{t.name}</Link>
+                        <Link key={t.code} className="ticker" href={href({ ticker: t.code })} scroll={false}>{t.name}</Link>
                       ))}
                     </div>
                   </li>
@@ -211,12 +244,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
           <section className="card pad" aria-label="업종 히트맵">
             <h2 className="section-title">업종 히트맵{" "}
-              <small>{d.sectors.basis === "etf" ? "업종 ETF 전일 대비 등락률" : "KRX 업종 지수 등락률"}</small>
-              <span className="right">{d.sectors.day ?? ""}</span>
+              <small>
+                {sectors.basis === "us_etf" ? "미국 업종 ETF 전일 대비 등락률"
+                  : sectors.basis === "etf" ? "업종 ETF 전일 대비 등락률" : "KRX 업종 지수 등락률"}
+                {sectors.day ? ` · ${sectors.day}` : ""}
+              </small>
+              <span className="right chips chips-s" role="group" aria-label="업종 히트맵 지역">
+                <Link href={href({ hm: undefined })} scroll={false} aria-current={hmRegion === "kr"}>국내</Link>
+                <Link href={href({ hm: "us" })} scroll={false} aria-current={hmRegion === "us"}>미국</Link>
+              </span>
             </h2>
-            {d.sectors.items.length === 0
-              ? <div className="empty">업종 데이터 없음 — 수집기가 채웁니다 (config/sources.yaml 의 sector_etfs)</div>
-              : <Heatmap items={d.sectors.items} />}
+            {sectors.items.length === 0
+              ? <div className="empty">업종 데이터 없음 — 수집기가 채웁니다
+                  (config/sources.yaml 의 {hmRegion === "us" ? "us_sector_etfs" : "sector_etfs"})</div>
+              : <Heatmap items={sectors.items} />}
           </section>
         </div>
       </div>

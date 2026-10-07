@@ -225,3 +225,33 @@ def test_signup_logs_in_and_respects_settings(client, monkeypatch):
     r = client.put("/me/watchlist/035720", headers=h)
     assert r.status_code == 400 and "까지" in r.json()["detail"]
     assert client.put("/me/watchlist/005930", headers=h).status_code == 200   # 이미 있는 종목은 상한과 무관
+
+
+def test_us_stocks_watchlist_sectors_and_tagging(client, auth, monkeypatch):
+    from issue_stream.db.models import Ticker
+    from issue_stream.db.ops import upsert
+    from issue_stream.db.session import session_scope
+    from issue_stream.jobs import tasks
+    from issue_stream.pipeline.run import build_tagger
+    monkeypatch.setattr(tasks, "job_backfill_ticker", lambda code: None)
+    with session_scope() as db:
+        upsert(db, Ticker, dict(code="NVDA", name="엔비디아", market="NASDAQ", quote_code="NVDA.O"), ["code"])
+    with session_scope() as db:
+        assert "NVDA" not in build_tagger(db).tag("엔비디아 신고가")          # 아무도 안 보는 미국 종목은 태깅 안 함
+
+    hit = client.get("/tickers/search?q=엔비", headers=auth).json()[0]
+    assert hit["code"] == "NVDA" and hit["market"] == "NASDAQ"
+    assert client.put("/me/watchlist/NVDA", headers=auth).status_code == 200
+    wl = {w["code"]: w for w in client.get("/me/watchlist", headers=auth).json()}
+    assert wl["NVDA"]["region"] == "us" and wl["005930"]["region"] == "kr"
+    assert tasks._watchlist_codes(region="us") == [("NVDA", "NASDAQ", "NVDA.O")]
+    assert all(m != "NASDAQ" for _, m, _ in tasks._watchlist_codes(region="kr"))
+    with session_scope() as db:
+        assert build_tagger(db).tag("엔비디아·NVDA 신고가") == {"NVDA": 2}   # 관심종목이 되면 한글 이름·티커로 태깅
+
+    d = client.get("/dashboard", headers=auth).json()
+    assert d["sectors"]["basis"] == "etf" and all(i["market"] == "ETF" for i in d["sectors"]["items"])
+    assert d["sectors_us"]["basis"] == "us_etf" and len(d["sectors_us"]["items"]) >= 10
+    assert isinstance(d["us_market_open"], bool)
+    assert client.get("/market/sectors?region=us").json()["items"][0]["market"] == "US"
+    client.delete("/me/watchlist/NVDA", headers=auth)

@@ -133,6 +133,9 @@ def seed() -> dict:
             db.add(SectorIndex(market="ETF", name=name, day=days[-1], close=round(rng.uniform(300, 6000), 2),
                                change_pct=round(rng.gauss(0.2, 1.3), 2), trading_value=rng.uniform(1e11, 3e12),
                                source="demo"))
+        for e in load_yaml("sources.yaml").get("us_sector_etfs", []):
+            db.add(SectorIndex(market="US", name=e["name"], day=days[-1], close=round(rng.uniform(40, 600), 2),
+                               change_pct=round(rng.gauss(0.1, 1.1), 2), source="demo", symbol=str(e["code"])))
 
     now = datetime.now(timezone.utc)
     docs = [RawDoc(source="demo:news", external_id=f"demo-{i}", title=t, url=f"https://example.com/demo/{i}",

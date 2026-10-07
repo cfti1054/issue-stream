@@ -14,7 +14,7 @@ from sqlalchemy import delete, select, update
 
 from ..core import http
 from ..core.config import get_settings, load_yaml
-from ..core.market_calendar import is_market_open, is_trading_day
+from ..core.market_calendar import is_market_open, is_trading_day, is_us_market, is_us_market_open
 from ..db.models import (
     ApiUsage, Article, ArticleBody, DartCorpCode, JobRun, MacroSeries, Price, SectorIndex, Ticker,
     UserSession, UserWatchlist,
@@ -77,11 +77,16 @@ def job_news_pipeline() -> int:
 
 
 # ── 시세 (네이버 → 야후 → FDR, 키·로그인 불필요) ─────────────────
-def _watchlist_codes(codes: list[str] | None = None) -> list[tuple[str, str | None]]:
-    q = select(Ticker.code, Ticker.market)
+def _watchlist_codes(codes: list[str] | None = None, region: str | None = None
+                    ) -> list[tuple[str, str | None, str | None]]:
+    """(종목코드, 시장, 해외 조회 코드). region="kr"|"us" 면 그 지역만."""
+    q = select(Ticker.code, Ticker.market, Ticker.quote_code)
     q = q.where(Ticker.code.in_(codes)) if codes is not None else q.where(Ticker.in_watchlist.is_(True))
     with session_scope() as db:
-        return list(db.execute(q).all())
+        rows = list(db.execute(q).all())
+    if region:
+        rows = [r for r in rows if is_us_market(r[1]) == (region == "us")]
+    return rows
 
 
 def _save_rows(model, rows: list[dict], keys: list[str]) -> None:
@@ -90,12 +95,13 @@ def _save_rows(model, rows: list[dict], keys: list[str]) -> None:
             upsert(db, model, r, keys)
 
 
-def save_watchlist_prices(n: int, codes: list[str] | None = None) -> tuple[int, list[str]]:
-    """관심종목(codes 를 주면 그 종목만) 최근 n 거래일 시세 저장."""
+def save_watchlist_prices(n: int, codes: list[str] | None = None, region: str | None = None
+                          ) -> tuple[int, list[str]]:
+    """관심종목(codes 를 주면 그 종목만, region 을 주면 국내·미국 중 한쪽만) 최근 n 거래일 시세 저장."""
     from ..collectors.quotes import fetch_chain, stock_chain, to_price_rows
     total, problems = 0, []
-    for code, market in _watchlist_codes(codes):
-        bars, src, errs = fetch_chain(stock_chain(code, market), n + 1)
+    for code, market, quote_code in _watchlist_codes(codes, region):
+        bars, src, errs = fetch_chain(stock_chain(code, market, quote_code), n + 1)
         if not bars:
             problems.append(f"{code}: " + " / ".join(errs))
             continue
@@ -121,19 +127,27 @@ def save_index_strip(n: int) -> tuple[int, list[str]]:
     return total, problems
 
 
+# 업종 히트맵: (sector_indices.market, sources.yaml 키)
+SECTOR_GROUPS = (("ETF", "sector_etfs"), ("US", "us_sector_etfs"))
+
+
 def save_sectors() -> tuple[int, list[str]]:
-    """업종 ETF 의 최근 두 거래일 종가로 등락률을 계산해 히트맵 데이터로 저장."""
+    """국내·미국 업종 ETF 의 최근 두 거래일 종가로 등락률을 계산해 히트맵 데이터로 저장."""
     from ..collectors.quotes import fetch_chain, stock_chain
     rows, problems = [], []
-    for e in load_yaml("sources.yaml").get("sector_etfs", []):
-        bars, src, errs = fetch_chain(stock_chain(str(e["code"])), 3)
-        if len(bars) < 2:
-            problems.append(f"{e['name']}({e['code']}): " + (" / ".join(errs) or "데이터 부족"))
-            continue
-        last, prev = bars[-1], bars[-2]
-        rows.append({"market": "ETF", "name": e["name"], "day": last["day"], "close": last["close"],
-                     "change_pct": round((last["close"] / prev["close"] - 1) * 100, 2),
-                     "trading_value": None, "source": src.split(":")[0], "symbol": str(e["code"])})
+    cfg = load_yaml("sources.yaml")
+    for market, key in SECTOR_GROUPS:
+        for e in cfg.get(key, []):
+            code = str(e["code"])
+            chain = stock_chain(code.split(".")[0], "US", code) if market == "US" else stock_chain(code)
+            bars, src, errs = fetch_chain(chain, 3)
+            if len(bars) < 2:
+                problems.append(f"{e['name']}({code}): " + (" / ".join(errs) or "데이터 부족"))
+                continue
+            last, prev = bars[-1], bars[-2]
+            rows.append({"market": market, "name": e["name"], "day": last["day"], "close": last["close"],
+                         "change_pct": round((last["close"] / prev["close"] - 1) * 100, 2),
+                         "trading_value": None, "source": src.split(":")[0], "symbol": code})
     _save_rows(SectorIndex, rows, ["market", "name", "day"])
     return len(rows), problems
 
@@ -151,9 +165,20 @@ def job_intraday_prices() -> int:
     """장중 5분마다 관심종목·지수 현재가 (네이버는 장중에 당일 행을 실시간으로 갱신)."""
     if not is_market_open():
         raise Skip("장 운영 시간 아님")
-    n1, p1 = save_watchlist_prices(2)
+    n1, p1 = save_watchlist_prices(2, region="kr")
     n2, p2 = save_index_strip(2)
     return _raise_if_nothing(n1 + n2, p1 + p2, "장중 시세")
+
+
+@tracked
+def job_us_intraday_prices() -> int:
+    """미국 장중 10분마다 미국 관심종목 현재가 (장 마감 확정치는 다음 날 아침 job_backfill_prices)."""
+    if not is_us_market_open():
+        raise Skip("미국 장 운영 시간 아님")
+    n, problems = save_watchlist_prices(2, region="us")
+    if n == 0 and not problems:
+        raise Skip("미국 관심종목 없음")
+    return _raise_if_nothing(n, problems, "미국 장중 시세")
 
 
 @tracked
@@ -210,7 +235,8 @@ def sync_watchlist() -> int:
     with session_scope() as db:
         for w in wl:
             upsert(db, Ticker, dict(code=str(w["code"]), name=w["name"], aliases=w.get("aliases", []),
-                                    market=w.get("market")), ["code"], ["name", "aliases"])
+                                    market=w.get("market"), quote_code=w.get("quote_code")),
+                   ["code"], ["name", "aliases"] + (["market", "quote_code"] if w.get("quote_code") else []))
         codes = {str(w["code"]) for w in wl}
         holds = {str(w["code"]) for w in wl if w.get("holding")}
         for code, holding in db.execute(select(UserWatchlist.ticker, UserWatchlist.holding)).all():
@@ -248,7 +274,23 @@ def job_sync_tickers() -> int:
         for t in master.values():
             upsert(db, Ticker, dict(code=t["code"], name=t["name"], market=t["market"]), ["code"],
                    ["name", "market"] if t["market"] else ["name"])
-    return n + len(master)
+    return n + len(master) + sync_us_tickers()
+
+
+def sync_us_tickers() -> int:
+    """미국 종목 목록 (NASDAQ·NYSE·AMEX, 종목 검색용). 실패해도 국내 기능에는 영향 없음."""
+    from ..collectors.quotes import US_EXCHANGES, naver_world_listing
+    us: dict[str, dict] = {}
+    for ex in US_EXCHANGES:
+        try:
+            for t in naver_world_listing(ex):
+                us.setdefault(t["code"], t)
+        except Exception as e:  # noqa: BLE001
+            log.warning("미국 %s 종목 목록 조회 실패: %s", ex, e)
+    with session_scope() as db:
+        for t in us.values():
+            upsert(db, Ticker, t, ["code"], ["name", "market", "quote_code"])
+    return len(us)
 
 
 @tracked

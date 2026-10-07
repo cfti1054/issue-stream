@@ -67,3 +67,20 @@ sector_etfs:
   - {name: 미디어·엔터, code: "266360"}   # KODEX 미디어&엔터테인먼트
   - {name: 게임, code: "300950"}          # KODEX 게임산업
   - {name: IT, code: "266370"}            # KODEX IT
+
+# 미국 업종 히트맵: 미국 업종 ETF (S&P 500 섹터 SPDR + 반도체·바이오). code 는 네이버 해외주식 조회 코드
+# (NYSE Arca 상장 ETF 는 대개 접미사 없음, 나스닥 상장은 .O). issue-stream doctor 로 응답 확인.
+us_sector_etfs:
+  - {name: 기술, code: "XLK"}
+  - {name: 반도체, code: "SOXX.O"}
+  - {name: 커뮤니케이션, code: "XLC"}
+  - {name: 임의소비재, code: "XLY"}
+  - {name: 금융, code: "XLF"}
+  - {name: 헬스케어, code: "XLV"}
+  - {name: 바이오, code: "IBB.O"}
+  - {name: 산업재, code: "XLI"}
+  - {name: 에너지, code: "XLE"}
+  - {name: 필수소비재, code: "XLP"}
+  - {name: 소재, code: "XLB"}
+  - {name: 유틸리티, code: "XLU"}
+  - {name: 부동산, code: "XLRE.K"}

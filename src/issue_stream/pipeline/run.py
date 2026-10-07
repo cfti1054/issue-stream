@@ -29,6 +29,7 @@ from .cluster import ClusterState, assign
 from .dedupe import find_duplicate, simhash
 from .importance import ImportanceInput, importance
 from .normalize import normalize_title
+from ..core.market_calendar import is_us_market
 from .tagging import TickerEntry, TickerTagger
 
 log = logging.getLogger(__name__)
@@ -44,8 +45,17 @@ def ticker_keys(codes: list[str]) -> str:
 
 
 def build_tagger(db: Session) -> TickerTagger:
-    rows = db.execute(select(Ticker.code, Ticker.name, Ticker.aliases)).all()
-    return TickerTagger([TickerEntry(c, (n, *(a or []))) for c, n, a in rows])
+    """국내 종목은 전부, 미국 종목은 누군가의 관심종목일 때만 (수천 개 이름이 섞이면 오탐이 늘어난다).
+    미국 종목은 한글 이름 외에 3자 이상 티커(NVDA, TSLA)도 찾는다."""
+    entries = []
+    for c, n, a, market, watched in db.execute(
+            select(Ticker.code, Ticker.name, Ticker.aliases, Ticker.market, Ticker.in_watchlist)).all():
+        if is_us_market(market):
+            if watched:
+                entries.append(TickerEntry(c, (n, *(a or []), *([c] if len(c) >= 3 else []))))
+        else:
+            entries.append(TickerEntry(c, (n, *(a or []))))
+    return TickerTagger(entries)
 
 
 # ── 1. 수집·적재 ────────────────────────────────────────────────

@@ -27,7 +27,7 @@ from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..core.config import get_settings, load_yaml
-from ..core.market_calendar import is_market_open
+from ..core.market_calendar import is_market_open, is_us_market, is_us_market_open
 from ..db.models import (
     ApiUsage, Article, Issue, IssueArticle, IssueSummaryRow, IssueTicker, JobRun, MacroSeries, Price,
     SectorIndex, Ticker, User, UserWatchlist,
@@ -137,7 +137,8 @@ def _watchlist(s: Session, user: User | None) -> list[dict]:
             .where(IssueTicker.ticker == t.code, Issue.last_seen >= since)
             .order_by(desc(Issue.importance)).limit(1)).first()
         out.append({
-            "code": t.code, "name": t.name, "holding": holding,
+            "code": t.code, "name": t.name, "holding": holding, "market": t.market,
+            "region": "us" if is_us_market(t.market) else "kr",
             "close": rows[-1].close if rows else None, "change": chg, "change_pct": pct,
             "day": rows[-1].day if rows else None, "spark": [r.close for r in rows],
             "stale": bool(rows) and (date.today() - rows[-1].day).days > STALE_DAYS,
@@ -147,13 +148,15 @@ def _watchlist(s: Session, user: User | None) -> list[dict]:
     return out
 
 
-def _sectors(s: Session) -> dict:
-    last_day = s.scalar(select(func.max(SectorIndex.day)))
+def _sectors(s: Session, market: str = "ETF") -> dict:
+    """업종 히트맵. market="ETF" 국내 업종 ETF, "US" 미국 업종 ETF (각자 마지막 거래일 기준)."""
+    basis = "us_etf" if market == "US" else "etf"
+    last_day = s.scalar(select(func.max(SectorIndex.day)).where(SectorIndex.market == market))
     if not last_day:
-        return {"day": None, "basis": "etf", "items": []}
-    rows = s.scalars(select(SectorIndex).where(SectorIndex.day == last_day)
+        return {"day": None, "basis": basis, "items": []}
+    rows = s.scalars(select(SectorIndex).where(SectorIndex.market == market, SectorIndex.day == last_day)
                      .order_by(desc(SectorIndex.change_pct))).all()
-    return {"day": last_day, "basis": "etf" if rows and rows[0].market == "ETF" else "index",
+    return {"day": last_day, "basis": basis,
             "items": [{"name": r.name, "market": r.market, "change_pct": r.change_pct, "close": r.close,
                        "symbol": r.symbol} for r in rows]}
 
@@ -191,10 +194,12 @@ def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_use
         "demo": demo,
         "collection": _collection_status(s),
         "market_open": is_market_open(),
+        "us_market_open": is_us_market_open(),
         "indices": _indices(s),
         "brief": build_market_brief(s),
         "watchlist": _watchlist(s, user),
-        "sectors": _sectors(s),
+        "sectors": _sectors(s, "ETF"),
+        "sectors_us": _sectors(s, "US"),
         "issues": [_issue_card(s, i, with_articles=False) for i in issues],
     }
 
@@ -203,7 +208,8 @@ def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_use
 def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
     t = s.get(Ticker, symbol)
     rows = _series(s, symbol, days)
-    return {"symbol": symbol, "name": t.name if t else symbol,
+    return {"symbol": symbol, "name": t.name if t else symbol, "market": t.market if t else None,
+            "is_stock": t is not None,   # 지수·환율은 종목 마스터에 없다
             "points": [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
                         "volume": r.volume, "change_pct": r.change_pct} for r in rows]}
 
@@ -258,8 +264,8 @@ def indices(s: Session = Depends(db)):
 
 
 @app.get("/market/sectors")
-def sectors(s: Session = Depends(db)):
-    return _sectors(s)
+def sectors(region: str = "kr", s: Session = Depends(db)):
+    return _sectors(s, "US" if region == "us" else "ETF")
 
 
 @app.get("/tickers")

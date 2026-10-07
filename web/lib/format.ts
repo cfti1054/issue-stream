@@ -13,6 +13,22 @@ export function price(v: number | null | undefined, isIndex = false): string {
   return num(v, isIndex ? 2 : 0);
 }
 
+const US_MARKETS = new Set(["NASDAQ", "NYSE", "AMEX", "US"]);
+
+export function isUS(market: string | null | undefined): boolean {
+  return !!market && US_MARKETS.has(market);
+}
+
+/** 주가: 국내는 원 단위 정수, 미국은 달러 소수 2자리 */
+export function stockPrice(v: number | null | undefined, market?: string | null): string {
+  if (v === null || v === undefined) return "–";
+  return isUS(market) ? `$${num(v, 2)}` : num(v, 0);
+}
+
+export function stockChange(v: number | null | undefined, market?: string | null): string {
+  return signed(v, isUS(market) ? 2 : 0);
+}
+
 export function pct(v: number | null | undefined): string {
   if (v === null || v === undefined) return "–";
   const sign = v > 0 ? "+" : v < 0 ? "−" : "";

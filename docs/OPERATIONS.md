@@ -10,11 +10,12 @@
 | 작업 | 주기 | 조건 |
 |---|---|---|
 | `job_news_pipeline` 뉴스 → 중복 제거 → 클러스터링 → 요약 | 10분 | 항상 |
-| `job_intraday_prices` 관심종목·지수 현재가 | 평일 09~15시 5분 | 개장일·장중만 (아니면 skipped) |
+| `job_intraday_prices` 국내 관심종목·지수 현재가 | 평일 09~15시 5분 | 개장일·장중만 (아니면 skipped) |
+| `job_us_intraday_prices` 미국 관심종목 현재가 | 월~토 22~06시 10분 (KST) | 미국 장중만 (서머타임·미국 휴장일 반영, NYSE 캘린더) |
 | `job_daily_close` 확정 일봉 + 지수 + 업종 ETF 히트맵 | 평일 16:10 | 개장일만 |
-| `job_backfill_prices(days=5)` 해외 지수 마감치 보정 | 화~토 07:10 | |
+| `job_backfill_prices(days=5)` 미국 종목·해외 지수 마감치, 미국 업종 히트맵 | 화~토 07:10 | |
 | `job_macro` ECOS·FRED | 매일 07:30 | 키가 있을 때만 (선택) |
-| `job_sync_tickers` 종목 목록(태깅 사전) + watchlist | 매주 월 06:00 | |
+| `job_sync_tickers` 국내 종목 목록(태깅 사전) + 미국 종목 목록(NASDAQ·NYSE·AMEX, 종목 검색) | 매주 월 06:00 | |
 | `job_sync_dart_corp_codes` DART 고유번호 | 매주 월 06:20 | DART 키가 있을 때만 (선택) |
 | `job_retention` 본문 TTL 삭제·오래된 기사 삭제·이슈 종료 | 매일 03:00 | |
 

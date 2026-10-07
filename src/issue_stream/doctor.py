@@ -118,8 +118,11 @@ def check_sectors() -> tuple[int, int]:
     from .core.config import load_yaml
     print("\n■ 업종 히트맵용 ETF")
     ok = bad = 0
-    for e in load_yaml("sources.yaml").get("sector_etfs", []):
-        bars, src, errs = fetch_chain(stock_chain(str(e["code"])), 3)
+    cfg = load_yaml("sources.yaml")
+    for e in cfg.get("sector_etfs", []) + [dict(x, us=True) for x in cfg.get("us_sector_etfs", [])]:
+        code = str(e["code"])
+        chain = stock_chain(code.split(".")[0], "US", code) if e.get("us") else stock_chain(code)
+        bars, src, errs = fetch_chain(chain, 3)
         if len(bars) >= 2:
             chg = (bars[-1]["close"] / bars[-2]["close"] - 1) * 100
             _line(OK, f"{e['name']} ({e['code']})", f"{bars[-1]['day']} {chg:+.2f}% ← {src}")

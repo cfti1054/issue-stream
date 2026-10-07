@@ -49,6 +49,7 @@ erDiagram
         varchar(10) market
         varchar(100) sector
         json aliases
+        varchar(20) quote_code
         boolean in_watchlist
         boolean holding
         timestamptz updated_at
@@ -128,6 +129,7 @@ erDiagram
         varchar(10) market
         varchar(100) sector
         json aliases
+        varchar(20) quote_code
         boolean in_watchlist
         boolean holding
         timestamptz updated_at
@@ -151,6 +153,7 @@ erDiagram
         varchar(10) market
         varchar(100) sector
         json aliases
+        varchar(20) quote_code
         boolean in_watchlist
         boolean holding
         timestamptz updated_at
@@ -256,7 +259,7 @@ erDiagram
 
 ### `tickers`
 
-종목 마스터 (태깅 사전). in_watchlist·holding 은 yaml + 계정별 관심종목에서 계산한 수집 대상 표시.
+종목 마스터 (태깅 사전·종목 검색). 국내(KOSPI·KOSDAQ)와 미국(NASDAQ·NYSE·AMEX). in_watchlist·holding 은 yaml + 계정별 관심종목에서 계산한 수집 대상 표시.
 
 | 컬럼 | 타입 | 키 | NULL | 기본값 | 참조 | 설명 |
 |---|---|---|---|---|---|---|
@@ -265,6 +268,7 @@ erDiagram
 | `market` | varchar(10) |  | Y |  |  |  |
 | `sector` | varchar(100) |  | Y |  |  |  |
 | `aliases` | json |  |  | (앱에서 계산) |  |  |
+| `quote_code` | varchar(20) |  | Y |  |  | 해외 시세 조회 코드 (네이버, 예: NVDA.O) |
 | `in_watchlist` | boolean |  |  | False |  |  |
 | `holding` | boolean |  |  | False |  |  |
 | `updated_at` | timestamptz |  | Y | (앱에서 계산) |  |  |

@@ -40,13 +40,15 @@ def _utcnow() -> datetime:
 
 
 class Ticker(Base):
-    """종목 마스터 (태깅 사전). in_watchlist·holding 은 yaml + 계정별 관심종목에서 계산한 수집 대상 표시."""
+    """종목 마스터 (태깅 사전·종목 검색). 국내(KOSPI·KOSDAQ)와 미국(NASDAQ·NYSE·AMEX).
+    in_watchlist·holding 은 yaml + 계정별 관심종목에서 계산한 수집 대상 표시."""
     __tablename__ = "tickers"
     code: Mapped[str] = mapped_column(String(12), primary_key=True)
     name: Mapped[str] = mapped_column(String(100), index=True)
-    market: Mapped[str | None] = mapped_column(String(10))       # KOSPI / KOSDAQ
+    market: Mapped[str | None] = mapped_column(String(10))       # KOSPI / KOSDAQ / NASDAQ / NYSE / AMEX
     sector: Mapped[str | None] = mapped_column(String(100))
     aliases: Mapped[list] = mapped_column(JSON, default=list)
+    quote_code: Mapped[str | None] = mapped_column(String(20), comment="해외 시세 조회 코드 (네이버, 예: NVDA.O)")
     # 수집 대상 표시. watchlist.yaml + 모든 계정의 관심종목 합집합 (tasks.sync_watchlist 가 맞춘다)
     in_watchlist: Mapped[bool] = mapped_column(Boolean, default=False)
     holding: Mapped[bool] = mapped_column(Boolean, default=False)

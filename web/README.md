@@ -39,6 +39,8 @@ npm run dev                    # http://localhost:3000
 
 - `/signup` 가입 → 바로 로그인된다. 가입을 닫으면(API 의 `SIGNUP_ENABLED=false`) 안내만 보이고 `issue-stream user add <아이디>` 로만 계정을 만든다. `SIGNUP_INVITE_CODE` 가 있으면 초대 코드 칸이 나온다.
 - `/login` 에서 로그인.
+- 관심종목·업종 히트맵은 국내/미국 탭 (`?wl=us`, `?hm=us`). 관심종목이 5개를 넘으면 표 안에서 스크롤된다.
+  미국 종목은 검색창에서 한글 이름(엔비디아)이나 티커(NVDA)로 찾고, 가격은 달러·소수 2자리로 표시한다.
 - 로그인 결과 토큰은 **HttpOnly 쿠키**(`is_session`)에 저장되고, Next 서버가 API 를 부를 때 `Authorization: Bearer` 로 넘긴다.
   브라우저는 API 주소도 토큰도 모른다. 쓰기 요청(로그인·☆)은 서버 액션(`app/actions.ts`)으로 보낸다.
 - 비로그인: 지수·AI 요약·주요 뉴스·이슈 브리핑은 그대로 보이고, 관심종목 칸에 로그인 안내가 뜬다.
