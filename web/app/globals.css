@@ -351,5 +351,6 @@ details.evidence[open] summary::before { transform: rotate(90deg); }
 .login-form { display: grid; gap: 12px; margin: 16px 0 12px; }
 .login-form label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .form-error { margin: 0; color: var(--neg); font-size: 12px; }
-.login-card a, .empty a { color: var(--accent); font-weight: 600; }
+/* 글자 링크만 강조색. .btn(파란 배경 흰 글자)에는 적용하지 않는다 */
+.login-card a:not(.btn), .empty a:not(.btn) { color: var(--accent); font-weight: 600; }
 .login-form small { font-weight: 400; }

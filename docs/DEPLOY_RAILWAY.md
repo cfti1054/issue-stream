@@ -36,7 +36,7 @@ New Project → Deploy from GitHub repo → 이 저장소. 서비스 이름 **`a
 | Settings 항목 | 값 |
 |---|---|
 | Source → Root Directory | 비워 둠 |
-| Source → Watch Paths | `/src/**` `/config/**` `/migrations/**` `/alembic.ini` `/pyproject.toml` `/Dockerfile` |
+| Source → Watch Paths | 아래 6개를 **한 줄에 하나씩** 따로 추가 |
 | Build → Builder | Dockerfile (루트의 `Dockerfile` 자동 인식) |
 | Deploy → Custom Start Command | 비워 둠 (Dockerfile 의 CMD 사용) |
 | Deploy → Region | Southeast Asia (Singapore) 권장 |
@@ -45,6 +45,18 @@ New Project → Deploy from GitHub repo → 이 저장소. 서비스 이름 **`a
 | Deploy → Healthcheck Path | `/health` |
 | Deploy → Restart Policy | On Failure |
 | Networking | **공개 도메인을 만들지 않는다** |
+
+**Watch Paths** — 패턴마다 따로 입력한다. 한 칸에 공백으로 이어 붙이면 하나의 패턴으로 취급되어
+어떤 파일과도 맞지 않고, 백엔드 커밋을 푸시해도 api 가 재배포되지 않는다 (배포 목록에 Skipped 로 남음).
+
+```
+/src/**
+/config/**
+/migrations/**
+/alembic.ini
+/pyproject.toml
+/Dockerfile
+```
 
 **Volume** (SQLite 로 운영할 때만): 서비스 우클릭 → Attach Volume → Mount path **`/app/data`**.
 이게 없으면 재배포할 때마다 DB 가 초기화된다. PostgreSQL 을 쓰면 필요 없다.
