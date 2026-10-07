@@ -15,6 +15,9 @@ rss:
   - {name: 이데일리 증권, url: "https://rss.edaily.co.kr/stock_news.xml", enabled: false}
   - {name: 서울경제 증권, url: "https://www.sedaily.com/rss/finance", enabled: false}
   - {name: 이투데이 증권, url: "https://rss.etoday.co.kr/eto/market_news.xml", enabled: false}
+  # 미국 시장 (영어 원문). region: us → 대시보드 '미국' 탭으로
+  - {name: CNBC Markets, url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258", enabled: true, region: us}
+  - {name: Nasdaq.com Markets, url: "https://www.nasdaq.com/feed/rssoutbound?category=Markets", enabled: true, region: us}
 
 # 구글 뉴스 RSS 검색 (무료, 키 불필요). 관심종목 이름 + 추가 키워드로 최근 기사 수집.
 google_news:
@@ -22,6 +25,15 @@ google_news:
   per_ticker: true          # watchlist.yaml 의 종목명으로 검색
   window: 1d                # 최근 1일
   extra_queries: ["코스피", "코스닥 마감", "기준금리", "원달러 환율"]
+  # 미국 시장: 한국어 보도 (구글 뉴스 한국판)
+  us_queries: ["뉴욕증시", "나스닥 마감", "연준 금리", "미국 국채 금리"]
+  # 미국 시장: 영어 원문 (구글 뉴스 미국판)
+  en_queries: ["stock market today", "Wall Street stocks", "Federal Reserve rates", "Nasdaq S&P 500"]
+
+# 야후 파이낸스 종목별 영어 헤드라인 (무료, 키 불필요). 누군가 ☆ 한 미국 종목마다 1회 요청
+yahoo_finance:
+  enabled: true
+  max_tickers: 30
 
 # 네이버 뉴스 검색 API (무료, 키 필요: NAVER_CLIENT_ID/SECRET)
 naver_news:

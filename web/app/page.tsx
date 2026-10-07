@@ -12,7 +12,7 @@ import { HoldToggle, StarButton, WatchSearch } from "@/components/watch";
 
 export const dynamic = "force-dynamic";
 
-type Q = { ticker?: string; wl?: string; hm?: string };
+type Q = { ticker?: string; wl?: string; hm?: string; news?: string };
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Q> }) {
   const q = await searchParams;
@@ -20,6 +20,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // 관심종목·히트맵 탭 (?wl=us, ?hm=us). 다른 파라미터는 유지한 채 하나만 바꾼 주소
   const region = q.wl === "us" ? "us" : "kr";
   const hmRegion = q.hm === "us" ? "us" : "kr";
+  const newsRegion = q.news === "us" ? "us" : "kr";   // AI 요약·주요 뉴스 탭
+  const issuesHref = (no?: number) => `/issues${newsRegion === "us" ? "?region=us" : ""}${no ? `#issue-${no}` : ""}`;
+  const newsTabs = (label: string) => (
+    <span className="chips chips-s" role="group" aria-label={`${label} 지역`}>
+      <Link href={href({ news: undefined })} scroll={false} aria-current={newsRegion === "kr"}>국내</Link>
+      <Link href={href({ news: "us" })} scroll={false} aria-current={newsRegion === "us"}>미국</Link>
+    </span>
+  );
   const href = (patch: Q) => {
     const p = new URLSearchParams();
     const m: Q = { ...q, ...patch };
@@ -37,6 +45,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const count = { kr: d.watchlist.length - d.watchlist.filter((w) => w.region === "us").length,
                   us: d.watchlist.filter((w) => w.region === "us").length };
   const sectors = hmRegion === "us" ? d.sectors_us : d.sectors;
+  const brief = newsRegion === "us" ? d.brief_us : d.brief;
+  const topIssues = newsRegion === "us" ? d.issues_us : d.issues;
 
   // 차트 대상: URL 의 ?ticker= (관심종목이 아니어도 됨) → 현재 탭의 보유종목 → 현재 탭의 첫 관심종목
   const fallback = shown.find((w) => w.holding) ?? shown[0] ?? d.watchlist[0];
@@ -66,7 +76,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <p className="num-s">업데이트 {timeKST(d.generated_at)}</p>
       </div>
 
-      <StatusBanner s={d.collection} empty={!d.indices.length && !d.issues.length && !d.watchlist.some((w) => w.close)} />
+      <StatusBanner s={d.collection}
+        empty={!d.indices.length && !d.issues.length && !d.issues_us.length && !d.watchlist.some((w) => w.close)} />
 
       <div className="stack">
         {/* 1. 지수 스트립 */}
@@ -91,28 +102,29 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <section className="card brief" aria-label="AI 요약">
           <div className="brief-head">
             <span className="brief-tag">AI 요약</span>
+            {newsTabs("AI 요약")}
             <span className="muted num-s">
-              {d.brief.generated_by === "extractive" ? "추출 요약 (무료)" : d.brief.generated_by} · {timeKST(d.brief.generated_at)}
+              {brief.generated_by === "extractive" ? "추출 요약 (무료)" : brief.generated_by} · {timeKST(brief.generated_at)}
             </span>
           </div>
-          <h2>{d.brief.headline}</h2>
-          {d.brief.bullets.length > 0 ? (
+          <h2>{brief.headline}</h2>
+          {brief.bullets.length > 0 ? (
             <ol>
-              {d.brief.bullets.map((b, i) => (
+              {brief.bullets.map((b, i) => (
                 <li key={b.issue_no}>
                   <span className="rank tnum">{i + 1}</span>
                   <span className={`senti senti-${b.sentiment}`}>{SENTI_LABEL[b.sentiment]}</span>
-                  <Link href={`/issues#issue-${b.issue_no}`}>{b.text}</Link>
+                  <Link href={issuesHref(b.issue_no)}>{b.text}</Link>
                 </li>
               ))}
             </ol>
           ) : <p className="muted">아직 요약할 이슈가 없습니다.</p>}
           <div className="brief-foot">
-            <span>이슈 {d.brief.issue_count}건</span>
-            <span className="senti-positive">긍정 {d.brief.tone.positive}</span>
-            <span>중립 {d.brief.tone.neutral}</span>
-            <span className="senti-negative">부정 {d.brief.tone.negative}</span>
-            <Link href="/issues" style={{ marginLeft: "auto" }}>이슈 브리핑 전체 보기 →</Link>
+            <span>이슈 {brief.issue_count}건</span>
+            <span className="senti-positive">긍정 {brief.tone.positive}</span>
+            <span>중립 {brief.tone.neutral}</span>
+            <span className="senti-negative">부정 {brief.tone.negative}</span>
+            <Link href={issuesHref()} style={{ marginLeft: "auto" }}>이슈 브리핑 전체 보기 →</Link>
           </div>
         </section>
 
@@ -165,7 +177,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                           <HoldToggle code={w.code} holding={w.holding} />
                         </div>
                         {w.top_issue && (
-                          <Link className="issue-link" href={`/issues?ticker=${w.code}#issue-${w.top_issue.no}`}
+                          <Link className="issue-link" href={`/issues?ticker=${w.code}&region=all#issue-${w.top_issue.no}`}
                             title={w.top_issue.headline}>↳ {w.top_issue.headline}</Link>
                         )}
                       </td>
@@ -213,17 +225,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <div className="grid-2b">
           <section className="card pad" aria-label="주요 뉴스">
             <h2 className="section-title">주요 뉴스 <small>이슈 단위 · 중요도순</small>
-              <Link className="right" href="/issues">전체 →</Link>
+              <span className="right" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                {newsTabs("주요 뉴스")}
+                <Link href={issuesHref()}>전체 →</Link>
+              </span>
             </h2>
-            {d.issues.length === 0 ? <div className="empty">최근 24시간 이슈가 없습니다</div> : (
+            {topIssues.length === 0 ? <div className="empty">최근 24시간 {newsRegion === "us" ? "미국 시장 " : ""}이슈가 없습니다</div> : (
               <ul className="news-list">
-                {d.issues.map((it) => (
+                {topIssues.map((it) => (
                   <li key={it.no}>
                     <span className={`score tnum ${it.importance >= 60 ? "hot" : ""}`} title="중요도">
                       {Math.round(it.importance)}
                     </span>
                     <div>
-                      <Link className="headline" href={`/issues#issue-${it.no}`}>{it.summary?.headline ?? "요약 대기"}</Link>
+                      <Link className="headline" href={issuesHref(it.no)}>{it.summary?.headline ?? "요약 대기"}</Link>
                       <div className="meta">
                         <span className={`senti senti-${it.sentiment}`}>{SENTI_LABEL[it.sentiment]}</span>
                         <span>{it.sources[0]?.publisher} 외 {Math.max(0, it.publisher_count - 1)}곳</span>

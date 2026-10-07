@@ -55,7 +55,7 @@ def bootstrap() -> None:
     tasks.sync_watchlist()  # watchlist.yaml 변경 즉시 반영
     with session_scope() as db:
         n_tickers = db.scalar(select(func.count()).select_from(Ticker))
-        n_us = db.scalar(select(func.count()).select_from(Ticker).where(Ticker.quote_code.is_not(None)))
+        n_us = db.scalar(select(func.count()).select_from(Ticker).where(Ticker.name_en.is_not(None)))
         wl = list(db.scalars(select(Ticker.code).where(Ticker.in_watchlist.is_(True))).all())
         have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_(wl), Price.source != "demo")
                               .distinct()).all())

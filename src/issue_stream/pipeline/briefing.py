@@ -22,17 +22,25 @@ def _latest(db: Session, symbol: str) -> Price | None:
     return db.scalar(select(Price).where(Price.symbol == symbol).order_by(desc(Price.day)).limit(1))
 
 
-def build_market_brief(db: Session, hours: int = 24, top: int = 3) -> dict:
+# 요약 첫 줄에 붙일 지수 (index_strip 의 symbol)
+BRIEF_INDICES = {"kr": ("KS11", "KQ11"), "us": ("US500", "IXIC")}
+
+
+def build_market_brief(db: Session, hours: int = 24, top: int = 3, region: str = "kr") -> dict:
+    """region="kr" 국내 시장, "us" 미국 시장 이슈만으로 요약."""
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    issues = db.scalars(select(Issue).where(Issue.last_seen >= since).order_by(desc(Issue.importance))).all()
+    issues = db.scalars(select(Issue).where(Issue.last_seen >= since, Issue.region == region)
+                        .order_by(desc(Issue.importance))).all()
     tone = {"positive": 0, "neutral": 0, "negative": 0}
     for i in issues:
         tone[i.sentiment or "neutral"] += 1
 
-    # 지수 한 줄: 코스피 +0.82%, 코스닥 -0.31%
+    # 지수 한 줄: 코스피 +0.82%, 코스닥 -0.31% (미국: S&P 500, 나스닥)
     market_bits = []
-    for item in load_yaml("sources.yaml").get("index_strip", [])[:2]:
-        sym, name = (item["symbol"], item["name"]) if isinstance(item, dict) else (item, item)
+    names = {(i["symbol"] if isinstance(i, dict) else i): (i["name"] if isinstance(i, dict) else i)
+             for i in load_yaml("sources.yaml").get("index_strip", [])}
+    for sym in BRIEF_INDICES.get(region, ()):
+        name = names.get(sym, sym)
         p = _latest(db, sym)
         if p and p.change_pct is not None:
             market_bits.append(f"{name} {p.change_pct:+.2f}%")
@@ -49,9 +57,9 @@ def build_market_brief(db: Session, hours: int = 24, top: int = 3) -> dict:
         lead = max(tone, key=lambda k: tone[k])
         mood = {"positive": "긍정 우위", "negative": "부정 우위", "neutral": "중립"}[lead] \
             if tone[lead] > len(issues) / 2 else "혼조"
-        headline = f"최근 {hours}시간 주요 이슈 {len(issues)}건 · 뉴스 흐름 {mood}"
+        headline = f"최근 {hours}시간 {'미국 시장 ' if region == 'us' else ''}주요 이슈 {len(issues)}건 · 뉴스 흐름 {mood}"
     else:
-        headline = f"최근 {hours}시간 동안 수집된 이슈가 없습니다"
+        headline = f"최근 {hours}시간 동안 수집된 {'미국 시장 ' if region == 'us' else ''}이슈가 없습니다"
     if market_bits:
         headline = " · ".join(market_bits) + " | " + headline
 
@@ -60,6 +68,7 @@ def build_market_brief(db: Session, hours: int = 24, top: int = 3) -> dict:
         "bullets": bullets,
         "tone": tone,
         "issue_count": len(issues),
+        "region": region,
         "generated_by": get_settings().summarizer_provider,
         "generated_at": datetime.now(timezone.utc),
     }

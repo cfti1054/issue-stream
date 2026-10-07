@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from functools import lru_cache
 
@@ -27,6 +28,32 @@ NEGATIVE = [
 ]
 
 
+# 영어 기사 (미국 시장 원문). 단어 경계로만 센다 ("rise" 가 "enterprise" 에 걸리지 않도록)
+POSITIVE_EN = [
+    "surge", "surges", "surged", "soar", "soars", "soared", "jump", "jumps", "jumped", "rally", "rallies",
+    "rallied", "gain", "gains", "gained", "rise", "rises", "rose", "climb", "climbs", "climbed", "rebound",
+    "rebounds", "record high", "all-time high", "beat", "beats", "tops estimates", "upgrade", "upgraded",
+    "upgrades", "bullish", "strong", "outperform", "raises guidance", "raised guidance", "boost", "boosts",
+    "higher", "optimism", "recovery",
+]
+NEGATIVE_EN = [
+    "plunge", "plunges", "plunged", "tumble", "tumbles", "tumbled", "slump", "slumps", "slumped", "fall",
+    "falls", "fell", "drop", "drops", "dropped", "sink", "sinks", "sank", "slide", "slides", "slid", "decline",
+    "declines", "declined", "miss", "misses", "missed", "downgrade", "downgraded", "downgrades", "bearish",
+    "weak", "selloff", "sell-off", "recession", "layoffs", "lawsuit", "probe", "fears", "warning", "warns",
+    "cuts guidance", "bankruptcy", "lower", "losses", "crash", "crashes",
+]
+_HANGUL = re.compile(r"[가-힣]")
+
+
+def _en_pattern(words: list[str]) -> re.Pattern:
+    return re.compile(r"\b(" + "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True)) + r")\b",
+                      re.IGNORECASE)
+
+
+_POS_EN, _NEG_EN = _en_pattern(POSITIVE_EN), _en_pattern(NEGATIVE_EN)
+
+
 class SentimentModel(ABC):
     name: str
 
@@ -41,8 +68,11 @@ class LexiconSentiment(SentimentModel):
     def classify(self, texts: list[str]) -> list[Sentiment]:
         out: list[Sentiment] = []
         for t in texts:
-            pos = sum(t.count(w) for w in POSITIVE)
-            neg = sum(t.count(w) for w in NEGATIVE)
+            if _HANGUL.search(t):
+                pos = sum(t.count(w) for w in POSITIVE)
+                neg = sum(t.count(w) for w in NEGATIVE)
+            else:   # 영어 원문
+                pos, neg = len(_POS_EN.findall(t)), len(_NEG_EN.findall(t))
             out.append("positive" if pos > neg else "negative" if neg > pos else "neutral")
         return out
 

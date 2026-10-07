@@ -16,6 +16,7 @@ export default function IssueCard({ issue, now }: { issue: Issue; now: number })
         </span>
         <span className={`senti senti-${issue.sentiment}`}>{SENTI_LABEL[issue.sentiment]}</span>
         {issue.has_disclosure && <span className="tag-disc">공시 확인</span>}
+        {issue.region === "us" && <span className="tag-disc" title="미국 시장 이슈">미국</span>}
         <span className="muted num-s" style={{ marginLeft: "auto" }}>
           {ago(issue.first_seen, now)} 최초 보도 · 최근 {ago(issue.last_seen, now)}
         </span>

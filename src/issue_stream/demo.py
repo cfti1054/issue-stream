@@ -59,6 +59,13 @@ NEWS = [
     # 단독 이슈들
     ("카카오 공동체 구조조정 발표 지연", "전자신문", "계열사 정리 일정이 지연되고 있다.", 11.0),
     ("셀트리온 美 FDA 바이오시밀러 승인", "머니투데이", "신규 바이오시밀러가 승인을 받았다.", 13.0),
+    # 미국 시장 (한국어 보도 + 영어 원문)
+    ("뉴욕증시, 기술주 강세에 나스닥 사상 최고치…S&P500도 상승", "연합뉴스", "AI 반도체주가 상승을 이끌었다.", 6.0),
+    ("뉴욕증시 기술주 랠리…나스닥 최고치 경신", "뉴스1", None, 5.6),
+    ("Stocks rally as Nasdaq hits record high on tech gains", "CNBC", "Chipmakers led the gains on Wall Street.", 5.8),
+    ("Nasdaq jumps to all-time high as tech stocks surge", "Nasdaq.com", None, 5.4),
+    ("연준 위원들 \"금리 인하 서두를 필요 없어\"…미 국채 금리 상승", "한국경제", "물가 둔화 확인이 더 필요하다는 입장이다.", 8.0),
+    ("Fed officials signal no rush to cut rates, Treasury yields rise", "CNBC", None, 7.6),
 ]
 
 DISCLOSURES = [

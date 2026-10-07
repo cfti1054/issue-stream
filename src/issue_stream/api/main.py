@@ -181,11 +181,15 @@ def _collection_status(s: Session) -> dict:
             "scheduler": os.environ.get("ISSUE_STREAM_SCHEDULER") == "1"}
 
 
+def _top_issues(s: Session, region: str, n: int = 6) -> list[Issue]:
+    return list(s.scalars(select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=24), Issue.region == region)
+                          .order_by(desc(Issue.importance)).limit(n)).all())
+
+
 @app.get("/dashboard")
 def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_user)):
-    """마켓 대시보드 한 화면에 필요한 값 전부. 결론(요약)이 위, 근거(표·히트맵)가 아래."""
-    issues = s.scalars(select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=24))
-                       .order_by(desc(Issue.importance)).limit(6)).all()
+    """마켓 대시보드 한 화면에 필요한 값 전부. 결론(요약)이 위, 근거(표·히트맵)가 아래.
+    AI 요약·주요 뉴스·관심종목·히트맵은 국내(kr)와 미국(us)을 따로 내려준다."""
     demo = bool(s.scalar(select(Price.symbol).where(Price.source == "demo").limit(1)) or
                 s.scalar(select(Article.id).where(Article.source.like("demo%")).limit(1)))
     return {
@@ -196,11 +200,13 @@ def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_use
         "market_open": is_market_open(),
         "us_market_open": is_us_market_open(),
         "indices": _indices(s),
-        "brief": build_market_brief(s),
+        "brief": build_market_brief(s, region="kr"),
+        "brief_us": build_market_brief(s, region="us"),
         "watchlist": _watchlist(s, user),
         "sectors": _sectors(s, "ETF"),
         "sectors_us": _sectors(s, "US"),
-        "issues": [_issue_card(s, i, with_articles=False) for i in issues],
+        "issues": [_issue_card(s, i, with_articles=False) for i in _top_issues(s, "kr")],
+        "issues_us": [_issue_card(s, i, with_articles=False) for i in _top_issues(s, "us")],
     }
 
 
@@ -300,8 +306,11 @@ def search_tickers(q: str, limit: int = 20, s: Session = Depends(db),
 # ── 이슈 브리핑 ───────────────────────────────────────────────
 @app.get("/issues")
 def list_issues(hours: int = 24, limit: int = 30, ticker: str | None = None, sentiment: str | None = None,
-                s: Session = Depends(db)):
+                region: str | None = None, s: Session = Depends(db)):
+    """region=kr|us 면 그 지역 이슈만 (생략하면 전부)."""
     q = select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=hours))
+    if region in ("kr", "us"):
+        q = q.where(Issue.region == region)
     if ticker:
         q = q.join(IssueTicker).where(IssueTicker.ticker == ticker)
     if sentiment:
@@ -345,7 +354,7 @@ def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
     sources = [{"publisher": p, "at": t} for p, t in first_by_pub.items()]
 
     card = {
-        "no": i.no, "importance": i.importance, "sentiment": i.sentiment or "neutral",
+        "no": i.no, "region": i.region, "importance": i.importance, "sentiment": i.sentiment or "neutral",
         "article_count": i.article_count, "publisher_count": i.publisher_count,
         "has_disclosure": i.has_disclosure, "first_seen": i.first_seen, "last_seen": i.last_seen,
         "tickers": [{"code": c, "name": n} for c, n in tickers],

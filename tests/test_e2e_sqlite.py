@@ -255,3 +255,17 @@ def test_us_stocks_watchlist_sectors_and_tagging(client, auth, monkeypatch):
     assert isinstance(d["us_market_open"], bool)
     assert client.get("/market/sectors?region=us").json()["items"][0]["market"] == "US"
     client.delete("/me/watchlist/NVDA", headers=auth)
+
+
+def test_us_market_news_is_separated(client):
+    d = client.get("/dashboard").json()
+    assert d["brief"]["region"] == "kr" and d["brief_us"]["region"] == "us"
+    assert d["brief_us"]["issue_count"] >= 2 and "S&P 500" in d["brief_us"]["headline"]
+    us = d["issues_us"]
+    assert us and all(i["region"] == "us" for i in us)
+    assert all(i["region"] == "kr" for i in d["issues"])
+    heads = " ".join(i["summary"]["headline"] for i in us)
+    assert "나스닥" in heads or "Nasdaq" in heads
+    assert all(i["region"] == "us" for i in client.get("/issues?region=us").json())
+    assert all(i["region"] == "kr" for i in client.get("/issues?region=kr").json())
+    assert len(client.get("/issues").json()) >= len(us) + len(d["issues"])   # 생략하면 전부

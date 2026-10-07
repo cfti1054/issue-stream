@@ -7,9 +7,10 @@ import { TickerSelect } from "@/components/chrome";
 
 export const dynamic = "force-dynamic";
 
-type Q = { hours?: string; ticker?: string; sentiment?: string };
+type Q = { hours?: string; ticker?: string; sentiment?: string; region?: string };
 
 const HOURS = [["6", "6시간"], ["24", "24시간"], ["48", "48시간"]] as const;
+const REGIONS = [["kr", "국내"], ["us", "미국"], ["all", "전체"]] as const;
 const SENTIS = [["", "전체"], ["positive", "긍정"], ["neutral", "중립"], ["negative", "부정"]] as const;
 
 function href(q: Q, patch: Partial<Q>): string {
@@ -23,11 +24,13 @@ function href(q: Q, patch: Partial<Q>): string {
 export default async function IssuesPage({ searchParams }: { searchParams: Promise<Q> }) {
   const q = await searchParams;
   const hours = Number(q.hours ?? 24);
+  // 지역: 기본 국내. 종목 필터로 들어오면 그 종목 이슈가 어느 지역이든 보이도록 전체
+  const region = q.region === "us" || q.region === "all" ? q.region : q.region === "kr" ? "kr" : q.ticker ? "all" : "kr";
   let issues: Issue[];
   let tickers: { code: string; name: string }[];
   try {
     [issues, tickers] = await Promise.all([
-      api.issues({ hours, ticker: q.ticker, sentiment: q.sentiment, limit: 40 }),
+      api.issues({ hours, ticker: q.ticker, sentiment: q.sentiment, region, limit: 40 }),
       api.tickers(),
     ]);
   } catch (e) {
@@ -38,15 +41,21 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   const base: Record<string, string> = {};
   if (q.hours) base.hours = q.hours;
   if (q.sentiment) base.sentiment = q.sentiment;
+  if (q.region) base.region = q.region;
 
   return (
     <>
       <div className="page-head">
         <h1>이슈 브리핑</h1>
-        <p>같은 사건을 다룬 기사·공시를 하나로 묶어 요약합니다</p>
+        <p>같은 사건을 다룬 기사·공시를 하나로 묶어 요약합니다{region === "us" ? " · 미국 시장 (한국어 보도 + 영어 원문)" : ""}</p>
       </div>
 
       <div className="filters">
+        <div className="chips" role="group" aria-label="지역">
+          {REGIONS.map(([v, label]) => (
+            <Link key={v} href={href(q, { region: v })} aria-current={region === v ? "true" : undefined}>{label}</Link>
+          ))}
+        </div>
         <div className="chips" role="group" aria-label="기간">
           {HOURS.map(([v, label]) => (
             <Link key={v} href={href(q, { hours: v === "24" ? undefined : v })}

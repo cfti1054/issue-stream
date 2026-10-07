@@ -17,6 +17,7 @@ from ..core.schemas import RawDoc
 from .base import Collector, clean_text, watchlist_names
 
 URL = "https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
+URL_EN = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"   # 미국판 (영어 기사)
 
 
 def split_publisher(title: str, publisher: str | None) -> tuple[str, str | None]:
@@ -33,10 +34,17 @@ def split_publisher(title: str, publisher: str | None) -> tuple[str, str | None]
 class GoogleNewsCollector(Collector):
     name = "google"
 
-    def __init__(self, extra_queries: list[str] | None = None, per_ticker: bool = True, window: str = "1d"):
+    def __init__(self, extra_queries: list[str] | None = None, per_ticker: bool = True, window: str = "1d",
+                 region: str | None = None, english: bool = False):
         self.extra = extra_queries or []
         self.per_ticker = per_ticker
         self.window = window
+        self.region = region      # us 면 이 검색 결과는 모두 미국 시장 기사로 본다
+        self.url = URL_EN if english else URL
+        if english:
+            self.name = "google:en"
+        elif region:
+            self.name = f"google:{region}"
 
     def queries(self) -> list[str]:
         qs = []
@@ -47,7 +55,7 @@ class GoogleNewsCollector(Collector):
     def fetch(self, since: datetime) -> list[RawDoc]:
         docs: dict[str, RawDoc] = {}
         for q in self.queries():
-            feed = feedparser.parse(get_bytes("google", URL.format(q=quote(f"{q} when:{self.window}"))))
+            feed = feedparser.parse(get_bytes("google", self.url.format(q=quote(f"{q} when:{self.window}"))))
             for e in feed.entries:
                 ts = e.get("published_parsed") or e.get("updated_parsed")
                 published = datetime.fromtimestamp(calendar.timegm(ts), tz=timezone.utc) if ts else None
@@ -59,5 +67,5 @@ class GoogleNewsCollector(Collector):
                 if not ext or not title:
                     continue
                 docs[ext] = RawDoc(source=self.name, external_id=ext[:500], title=title, url=e.get("link", ""),
-                                   publisher=publisher, published_at=published, snippet=None)
+                                   publisher=publisher, published_at=published, snippet=None, region=self.region)
         return list(docs.values())

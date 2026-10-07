@@ -49,6 +49,7 @@ class Ticker(Base):
     sector: Mapped[str | None] = mapped_column(String(100))
     aliases: Mapped[list] = mapped_column(JSON, default=list)
     quote_code: Mapped[str | None] = mapped_column(String(20), comment="해외 시세 조회 코드 (네이버, 예: NVDA.O)")
+    name_en: Mapped[str | None] = mapped_column(String(100), comment="영문 이름 (미국 종목, 영어 기사 태깅용)")
     # 수집 대상 표시. watchlist.yaml + 모든 계정의 관심종목 합집합 (tasks.sync_watchlist 가 맞춘다)
     in_watchlist: Mapped[bool] = mapped_column(Boolean, default=False)
     holding: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -88,6 +89,8 @@ class Article(Base):
     embedding = mapped_column(Vector, nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(100))
     sentiment: Mapped[str | None] = mapped_column(String(10))
+    region: Mapped[str] = mapped_column(String(2), default="kr", server_default="kr",
+                                        comment="kr 국내 / us 미국 시장 (pipeline/region.py)")
 
 
 class ArticleBody(Base):
@@ -114,6 +117,8 @@ class Issue(Base):
     summarized_article_count: Mapped[int] = mapped_column(Integer, default=0)  # 재요약 판단용
     alerted: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(10), default="active")          # active | closed
+    region: Mapped[str] = mapped_column(String(2), default="kr", server_default="kr", index=True,
+                                        comment="kr 국내 / us 미국 (기사 지역 다수결)")
 
     articles: Mapped[list[IssueArticle]] = relationship(back_populates="issue", cascade="all, delete-orphan")
     tickers: Mapped[list[IssueTicker]] = relationship(back_populates="issue", cascade="all, delete-orphan")

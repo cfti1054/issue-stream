@@ -15,6 +15,7 @@ KRX 정보데이터시스템은 2024-12 부터 로그인이 필요해 pykrx·Fin
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import date, datetime, timedelta
 from typing import TypedDict
@@ -299,13 +300,28 @@ def naver_world_listing(exchange: str, max_pages: int = 40) -> list[dict]:
             name = _first(r, "stockName", "stockNameEng")
             if sym and quote and name and len(str(sym)) <= 12:
                 out[str(sym)] = {"code": str(sym), "name": str(name)[:100], "market": exchange,
-                                 "quote_code": str(quote)[:20]}
+                                 "quote_code": str(quote)[:20],
+                                 "name_en": english_name(_first(r, "stockNameEng") or "") or None}
         if len(rows) < 100:
             break
     return list(out.values())
 
 
 US_EXCHANGES = US_MARKETS
+
+_EN_SUFFIX = re.compile(r"[,.]?\s+(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|holdings?|group|"
+                        r"class [a-c]|adr|common stock|ordinary shares|sa|nv|ag|se)\.?$", re.IGNORECASE)
+
+
+def english_name(full: str) -> str:
+    """'NVIDIA Corporation' → 'NVIDIA', 'Alphabet Inc Class A' → 'Alphabet' (영어 기사 태깅용)."""
+    name = full.strip()
+    for _ in range(4):
+        trimmed = _EN_SUFFIX.sub("", name).strip(" ,.")
+        if trimmed == name:
+            break
+        name = trimmed
+    return name[:100]
 
 
 def naver_listing(market: str, max_pages: int = 40) -> list[dict]:

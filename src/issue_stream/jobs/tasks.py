@@ -289,7 +289,7 @@ def sync_us_tickers() -> int:
             log.warning("미국 %s 종목 목록 조회 실패: %s", ex, e)
     with session_scope() as db:
         for t in us.values():
-            upsert(db, Ticker, t, ["code"], ["name", "market", "quote_code"])
+            upsert(db, Ticker, t, ["code"], ["name", "market", "quote_code", "name_en"])
     return len(us)
 
 

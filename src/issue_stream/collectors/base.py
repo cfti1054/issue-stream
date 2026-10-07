@@ -44,6 +44,23 @@ def watchlist_names() -> list[str]:
     return list(dict.fromkeys(names))
 
 
+def us_watch_symbols() -> list[str]:
+    """누군가의 관심종목인 미국 종목 티커 (야후 종목별 영어 뉴스용)."""
+    try:
+        from sqlalchemy import select
+
+        from ..core.market_calendar import US_MARKETS
+        from ..db.models import Ticker
+        from ..db.session import session_scope
+        with session_scope() as db:
+            return list(db.scalars(select(Ticker.code).where(Ticker.in_watchlist.is_(True),
+                                                             Ticker.market.in_(US_MARKETS))
+                                   .order_by(Ticker.code)).all())
+    except Exception as e:  # noqa: BLE001
+        log.debug("미국 관심종목을 읽지 못함: %s", e)
+        return []
+
+
 _TAG = re.compile(r"<[^>]+>")
 
 
@@ -61,6 +78,7 @@ def enabled_collectors() -> list[Collector]:
     from .google_news import GoogleNewsCollector
     from .naver_news import NaverNewsCollector
     from .rss import RssCollector
+    from .yahoo_news import YahooTickerNewsCollector
 
     s = get_settings()
     src = load_yaml("sources.yaml")
@@ -68,12 +86,22 @@ def enabled_collectors() -> list[Collector]:
 
     for feed in src.get("rss", []):
         if feed.get("enabled"):
-            out.append(RssCollector(feed["name"], feed["url"]))
+            out.append(RssCollector(feed["name"], feed["url"], region=feed.get("region")))
 
     g = src.get("google_news", {})
     if g.get("enabled", True):
+        window = g.get("window", "1d")
         out.append(GoogleNewsCollector(extra_queries=g.get("extra_queries", []),
-                                       per_ticker=g.get("per_ticker", True), window=g.get("window", "1d")))
+                                       per_ticker=g.get("per_ticker", True), window=window))
+        if g.get("us_queries"):       # 한국어로 보도된 미국 시장 기사
+            out.append(GoogleNewsCollector(g["us_queries"], per_ticker=False, window=window, region="us"))
+        if g.get("en_queries"):       # 미국판 구글 뉴스 (영어 원문)
+            out.append(GoogleNewsCollector(g["en_queries"], per_ticker=False, window=window, region="us",
+                                           english=True))
+
+    y = src.get("yahoo_finance", {})
+    if y.get("enabled"):
+        out.append(YahooTickerNewsCollector(max_tickers=y.get("max_tickers", 30)))
 
     naver = src.get("naver_news", {})
     if naver.get("enabled") and s.naver_client_id:

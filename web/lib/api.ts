@@ -28,6 +28,7 @@ export interface MarketBrief {
   bullets: BriefBullet[];
   tone: Record<Sentiment, number>;
   issue_count: number;
+  region: "kr" | "us";
   generated_by: string;
   generated_at: string;
 }
@@ -86,6 +87,7 @@ export interface IssueArticle {
 
 export interface IssueCard {
   no: number;
+  region: "kr" | "us";
   importance: number;
   sentiment: Sentiment;
   article_count: number;
@@ -143,10 +145,12 @@ export interface Dashboard {
   us_market_open: boolean;
   indices: IndexItem[];
   brief: MarketBrief;
+  brief_us: MarketBrief;
   watchlist: WatchItem[];
   sectors: SectorBlock;
   sectors_us: SectorBlock;
   issues: IssueCard[];
+  issues_us: IssueCard[];
 }
 
 export interface PricePoint {
@@ -207,8 +211,9 @@ export const api = {
   dashboard: () => get<Dashboard>("/dashboard"),
   prices: (symbol: string, days = 120) =>
     get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}`),
-  issues: (q: { hours?: number; ticker?: string; sentiment?: string; limit?: number }) => {
+  issues: (q: { hours?: number; ticker?: string; sentiment?: string; region?: string; limit?: number }) => {
     const p = new URLSearchParams();
+    if (q.region && q.region !== "all") p.set("region", q.region);
     if (q.hours) p.set("hours", String(q.hours));
     if (q.ticker) p.set("ticker", q.ticker);
     if (q.sentiment) p.set("sentiment", q.sentiment);

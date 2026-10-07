@@ -50,6 +50,7 @@ erDiagram
         varchar(100) sector
         json aliases
         varchar(20) quote_code
+        varchar(100) name_en
         boolean in_watchlist
         boolean holding
         timestamptz updated_at
@@ -83,6 +84,7 @@ erDiagram
         bytea embedding
         varchar(100) embedding_model
         varchar(10) sentiment
+        varchar(2) region
     }
     article_bodies {
         bigint article_id PK, FK
@@ -103,6 +105,7 @@ erDiagram
         integer summarized_article_count
         boolean alerted
         varchar(10) status
+        varchar(2) region
     }
     issue_articles {
         bigint issue_id PK, FK
@@ -130,6 +133,7 @@ erDiagram
         varchar(100) sector
         json aliases
         varchar(20) quote_code
+        varchar(100) name_en
         boolean in_watchlist
         boolean holding
         timestamptz updated_at
@@ -154,6 +158,7 @@ erDiagram
         varchar(100) sector
         json aliases
         varchar(20) quote_code
+        varchar(100) name_en
         boolean in_watchlist
         boolean holding
         timestamptz updated_at
@@ -269,6 +274,7 @@ erDiagram
 | `sector` | varchar(100) |  | Y |  |  |  |
 | `aliases` | json |  |  | (앱에서 계산) |  |  |
 | `quote_code` | varchar(20) |  | Y |  |  | 해외 시세 조회 코드 (네이버, 예: NVDA.O) |
+| `name_en` | varchar(100) |  | Y |  |  | 영문 이름 (미국 종목, 영어 기사 태깅용) |
 | `in_watchlist` | boolean |  |  | False |  |  |
 | `holding` | boolean |  |  | False |  |  |
 | `updated_at` | timestamptz |  | Y | (앱에서 계산) |  |  |
@@ -300,6 +306,7 @@ erDiagram
 | `embedding` | bytea |  | Y |  |  |  |
 | `embedding_model` | varchar(100) |  | Y |  |  |  |
 | `sentiment` | varchar(10) |  | Y |  |  |  |
+| `region` | varchar(2) |  |  | 'kr' |  | kr 국내 / us 미국 시장 (pipeline/region.py) |
 
 제약·인덱스: UNIQUE (source, external_id) · INDEX (published_at) · INDEX (simhash) · INDEX (source)
 
@@ -334,8 +341,9 @@ erDiagram
 | `summarized_article_count` | integer |  |  | 0 |  |  |
 | `alerted` | boolean |  |  | False |  |  |
 | `status` | varchar(10) |  |  | 'active' |  |  |
+| `region` | varchar(2) |  |  | 'kr' |  | kr 국내 / us 미국 (기사 지역 다수결) |
 
-제약·인덱스: INDEX (first_seen) · INDEX (importance) · INDEX (last_seen)
+제약·인덱스: INDEX (first_seen) · INDEX (importance) · INDEX (last_seen) · INDEX (region)
 
 ### `issue_articles`
 

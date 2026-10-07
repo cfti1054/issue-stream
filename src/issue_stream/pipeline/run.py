@@ -29,7 +29,8 @@ from .cluster import ClusterState, assign
 from .dedupe import find_duplicate, simhash
 from .importance import ImportanceInput, importance
 from .normalize import normalize_title
-from ..core.market_calendar import is_us_market
+from ..core.market_calendar import US_MARKETS, is_us_market
+from . import region as region_rules
 from .tagging import TickerEntry, TickerTagger
 
 log = logging.getLogger(__name__)
@@ -48,11 +49,13 @@ def build_tagger(db: Session) -> TickerTagger:
     """국내 종목은 전부, 미국 종목은 누군가의 관심종목일 때만 (수천 개 이름이 섞이면 오탐이 늘어난다).
     미국 종목은 한글 이름 외에 3자 이상 티커(NVDA, TSLA)도 찾는다."""
     entries = []
-    for c, n, a, market, watched in db.execute(
-            select(Ticker.code, Ticker.name, Ticker.aliases, Ticker.market, Ticker.in_watchlist)).all():
+    for c, n, a, market, watched, en in db.execute(
+            select(Ticker.code, Ticker.name, Ticker.aliases, Ticker.market, Ticker.in_watchlist,
+                   Ticker.name_en)).all():
         if is_us_market(market):
             if watched:
-                entries.append(TickerEntry(c, (n, *(a or []), *([c] if len(c) >= 3 else []))))
+                entries.append(TickerEntry(c, (n, *(a or []), *([en] if en and len(en) >= 3 else []),
+                                               *([c] if len(c) >= 3 else []))))
         else:
             entries.append(TickerEntry(c, (n, *(a or []))))
     return TickerTagger(entries)
@@ -81,6 +84,7 @@ def collect_and_ingest(db: Session, since: datetime | None = None, docs: list | 
     recent = dict(db.execute(select(Article.id, Article.simhash)
                              .where(Article.published_at >= window, Article.duplicate_of.is_(None))).all())
     tagger = build_tagger(db)
+    us_codes = set(db.scalars(select(Ticker.code).where(Ticker.market.in_(US_MARKETS))).all())
     sentiments = get_sentiment_model().classify([d.title for d in docs]) if docs else []
 
     inserted = 0
@@ -94,6 +98,7 @@ def collect_and_ingest(db: Session, since: datetime | None = None, docs: list | 
             source=d.source, kind=d.kind, external_id=d.external_id[:500], title=d.title, norm_title=norm,
             url=d.url, publisher=d.publisher, published_at=d.published_at, snippet=d.snippet,
             simhash=h, duplicate_of=dup, tickers=tickers, ticker_keys=ticker_keys(tickers), sentiment=senti,
+            region=region_rules.classify(d.title, d.region, tickers, us_codes),
         ), ["source", "external_id"])
         if aid is None:
             continue  # 이미 수집됨
@@ -203,6 +208,7 @@ def enrich_issues(db: Session) -> int:
         arts = db.scalars(select(Article).join(IssueArticle, IssueArticle.article_id == Article.id)
                           .where(IssueArticle.issue_id == issue.id)).all()
         codes = {t for a in arts for t in (a.tickers or [])}
+        issue.region = region_rules.majority(a.region for a in arts)
         score, _parts = importance(ImportanceInput(
             article_count=issue.article_count, publisher_count=issue.publisher_count,
             articles_last_hour=sum(a.published_at >= hour_ago for a in arts),
