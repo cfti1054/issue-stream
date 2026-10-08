@@ -38,3 +38,7 @@ class IssueSummary(BaseModel):
     conflicting_views: bool = False
     source_article_ids: list[str] = Field(default_factory=list)
     generated_by: str = "extractive"  # 어떤 provider가 만들었는지 (화면에 표시·비교용)
+    # 시그널 화면용 (pipeline/topics.py). 이 필드가 생기기 전에 만든 요약에는 없어서 화면이 규칙으로 채운다.
+    category: str | None = None       # 주제 (topics.ALL_CATEGORIES 중 하나)
+    keywords: list[str] = Field(default_factory=list)   # 짧은 키워드 2~3개
+    reason: str | None = None         # 대표 종목이 움직인 이유 한 줄 ("AI칩 자금조달 논의로")

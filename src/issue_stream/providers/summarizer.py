@@ -22,6 +22,7 @@ import httpx
 
 from ..core.config import get_settings
 from ..core.schemas import IssueSummary
+from ..pipeline import topics
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class ArticleInput:
     kind: str = "news"
     sentiment: str | None = None
     tickers: list[str] = field(default_factory=list)
+    ticker_names: list[str] = field(default_factory=list)   # 키워드·이유에서 종목명을 빼는 데만 쓴다
 
 
 class Summarizer(ABC):
@@ -104,6 +106,8 @@ class ExtractiveSummarizer(Summarizer):
             chosen.append(g)
             seen_pub.add(a.publisher)
 
+        names = sorted({n for a in articles for n in a.ticker_names})
+        titles = [a.title for a in articles]
         sents = Counter(a.sentiment or "neutral" for a in articles)
         sentiment = sents.most_common(1)[0][0]
         tickers = [t for t, _ in Counter(t for a in articles for t in a.tickers).most_common(5)]
@@ -117,6 +121,9 @@ class ExtractiveSummarizer(Summarizer):
             conflicting_views=sents["positive"] > 0 and sents["negative"] > 0,
             source_article_ids=used_ids,
             generated_by=self.name,
+            category=topics.classify(titles + [a.snippet for a in articles if a.snippet]),
+            keywords=topics.keywords(titles, names),
+            reason=topics.reason(articles[head].title, names),
         )
 
 
@@ -128,6 +135,10 @@ SYSTEM_PROMPT = """당신은 한국 주식시장 뉴스 편집자입니다. 같�
 - 기사끼리 전망이 엇갈리면 conflicting_views 를 true 로.
 - affected_tickers 는 6자리 종목코드만. 후보 목록 밖의 코드는 넣지 마세요.
 - source_article_ids 에는 요약에 실제로 사용한 기사 id 만.
+- category 는 스키마의 목록 중 이 사건에 가장 맞는 주제 하나.
+- keywords 는 기사에 나온 핵심 표현 2~3개. 각 12자 이내의 명사구, 종목명은 넣지 마세요. (예: "AI칩 구매", "위성통신 정책")
+- reason 은 대표 종목(affected_tickers 첫 번째)이 움직인 이유를 "~로" 로 끝나는 20자 이내 한 구절로. 종목명은 빼세요.
+  (예: "AI칩 자금조달 논의로", "외국인·기관 동반 매도로")
 - 반드시 JSON 하나만 출력하세요."""
 
 JSON_SCHEMA = {
@@ -140,9 +151,12 @@ JSON_SCHEMA = {
         "confidence": {"type": "number"},
         "conflicting_views": {"type": "boolean"},
         "source_article_ids": {"type": "array", "items": {"type": "string"}},
+        "category": {"type": "string", "enum": topics.ALL_CATEGORIES},
+        "keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+        "reason": {"type": "string"},
     },
     "required": ["headline", "bullets", "sentiment", "affected_tickers", "confidence",
-                 "conflicting_views", "source_article_ids"],
+                 "conflicting_views", "source_article_ids", "category", "keywords", "reason"],
 }
 
 MAX_ARTICLES = 5
@@ -169,6 +183,15 @@ def _parse(text: str, generated_by: str, articles: list[ArticleInput]) -> IssueS
     valid_tickers = {t for a in articles for t in a.tickers}
     s.source_article_ids = [i for i in s.source_article_ids if i in valid_ids]
     s.affected_tickers = [t for t in s.affected_tickers if t in valid_tickers]
+    # 시그널 필드: 목록 밖 주제·빈 값·너무 긴 값은 규칙으로 채운다 (작은 로컬 모델이 형식을 자주 어김)
+    names = sorted({n for a in articles for n in a.ticker_names})
+    titles = [a.title for a in articles]
+    if s.category not in topics.ALL_CATEGORIES:
+        s.category = topics.classify(titles)
+    s.keywords = [k.strip() for k in s.keywords if k.strip() and not topics.too_long(k.strip())][:3]         or topics.keywords(titles, names)
+    s.reason = (s.reason or "").strip() or topics.reason(s.headline, names)
+    if len(s.reason) > 30:
+        s.reason = s.reason[:29].rstrip() + "…"
     return s
 
 
@@ -219,7 +242,7 @@ class AnthropicSummarizer(_LLMSummarizer):
         r = httpx.post(self.API, timeout=60, headers={
             "x-api-key": self.key, "anthropic-version": "2023-06-01", "content-type": "application/json",
         }, json={
-            "model": self.model, "max_tokens": 800, "temperature": 0.1,
+            "model": self.model, "max_tokens": 1000, "temperature": 0.1,
             "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": user_prompt}],
         })

@@ -9,6 +9,7 @@ export function Nav() {
   const items = [
     { href: "/", label: "마켓 대시보드" },
     { href: "/issues", label: "이슈 브리핑" },
+    { href: "/signals", label: "시그널" },
     { href: "/fx", label: "환율" },
   ];
   return (

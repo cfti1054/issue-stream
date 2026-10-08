@@ -8,6 +8,8 @@
                  GET /market/prices/{symbol}      선택 종목 가격 차트
   이슈 브리핑    GET /issues                      이슈 카드 (근거 기사·보도량 추이 포함)
                  GET /issues/{no}                 이슈 상세 (확산 타임라인)
+  시그널         GET /signals                     이슈 주제 → 대표 종목(이유·등락률) → 연관 종목
+  환율           GET /market/fx                   원화 환율·달러 지표
   로그인·가입    POST /auth/login, /auth/signup, /auth/logout, GET /auth/me, /auth/config   (api/auth.py)
   관심종목       GET /me/watchlist, PUT·DELETE /me/watchlist/{code}, GET /tickers/search
   번호           이슈·기사·계정은 화면용 번호 no 로 내보낸다. 내부 PK id 는 FK 전용 (db/sequences.py)
@@ -32,6 +34,7 @@ from ..db.models import (
     ApiUsage, Article, Issue, IssueArticle, IssueSummaryRow, IssueTicker, JobRun, MacroSeries, Price,
     SectorIndex, Ticker, User, UserWatchlist,
 )
+from ..pipeline import topics
 from ..pipeline.briefing import build_market_brief
 from .auth import current_user, db, optional_user, user_json
 from .auth import router as auth_router
@@ -433,6 +436,74 @@ def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
                                                     if a is not head and a.publisher and a.publisher != head.publisher))})
         card["articles"] = sorted(rows, key=lambda x: (not x["cited"], x["published_at"]))
     return card
+
+
+# ── 시그널 ───────────────────────────────────────────────────
+# 대표 종목이 없는 이슈(금리·환율 등)는 시장 지수를 대표로 보여 준다
+MARKET_PROXY = {"kr": ("KS11", "코스피"), "us": ("US500", "S&P 500")}
+
+
+def _quote(s: Session, symbol: str) -> dict:
+    rows = _series(s, symbol, 2)
+    _, pct = _change(rows)
+    return {"close": rows[-1].close if rows else None, "change_pct": pct, "day": rows[-1].day if rows else None}
+
+
+@app.get("/signals")
+def signals(region: str = "kr", hours: int = 6, limit: int = 12, s: Session = Depends(db),
+            user: User | None = Depends(optional_user)):
+    """시그널 맵. 이슈 1건 = 1줄: 주제·키워드·출처 → 대표 종목(이유·등락률) → 함께 언급된 종목.
+    로그인하면 관심종목이 나온 이슈는 mine 으로 따로 내려준다 (items 에서는 뺀다)."""
+    region = "us" if region == "us" else "kr"
+    hours = max(1, min(hours, 72))
+    limit = max(1, min(limit, 30))
+    mine_codes = set(s.scalars(select(UserWatchlist.ticker).where(UserWatchlist.user_id == user.id)).all())         if user else set()
+    issues = s.scalars(select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=hours), Issue.region == region)
+                       .order_by(desc(Issue.importance), desc(Issue.last_seen)).limit(limit * 3)).all()
+    items, mine = [], []
+    for i in issues:
+        row = _signal_row(s, i, region)
+        if mine_codes and mine_codes & {row["main"]["code"], *(r["code"] for r in row["related"])}:
+            mine.append(row)
+        elif len(items) < limit:
+            items.append(row)
+    return {"region": region, "hours": hours, "generated_at": _now(), "items": items, "mine": mine[:limit]}
+
+
+def _signal_row(s: Session, i: Issue, region: str) -> dict:
+    summ = s.scalar(select(IssueSummaryRow.payload).where(IssueSummaryRow.issue_id == i.id,
+                                                         IssueSummaryRow.is_current.is_(True))) or {}
+    tick = s.execute(select(Ticker.code, Ticker.name, Ticker.market).join(IssueTicker, IssueTicker.ticker == Ticker.code)
+                     .where(IssueTicker.issue_id == i.id).order_by(desc(IssueTicker.mentions))).all()
+    # 대표 종목: 요약이 꼽은 첫 종목 → 언급이 가장 많은 종목 → 시장 지수
+    first = next(iter(summ.get("affected_tickers") or []), None)
+    tick = sorted(tick, key=lambda r: r[0] != first)
+    names = [n for _, n, _ in tick]
+    arts = s.execute(select(Article.title, Article.publisher, Article.published_at)
+                     .join(IssueArticle, IssueArticle.article_id == Article.id)
+                     .where(IssueArticle.issue_id == i.id).order_by(Article.published_at)).all()
+    titles = [a.title for a in arts]
+    pubs = list(dict.fromkeys(a.publisher for a in arts if a.publisher))
+    headline = summ.get("headline") or (titles[0] if titles else "")
+
+    if tick:
+        code, name, market = tick[0]
+        main = {"code": code, "name": name, "market": market, "is_index": False}
+    else:
+        code, name = MARKET_PROXY[region]
+        main = {"code": code, "name": name, "market": None, "is_index": True}
+    main.update(_quote(s, main["code"]))
+    related = [{"code": c, "name": n, "market": m, **_quote(s, c)} for c, n, m in tick[1:4]]
+    return {
+        "issue_no": i.no, "importance": i.importance, "sentiment": i.sentiment or "neutral",
+        "last_seen": i.last_seen, "headline": headline,
+        # 예전 요약(필드 추가 전)은 규칙으로 채운다
+        "category": summ.get("category") or topics.classify(titles),
+        "keywords": summ.get("keywords") or topics.keywords(titles, names),
+        "reason": summ.get("reason") or topics.reason(headline, names),
+        "publisher_count": i.publisher_count, "publishers": pubs[:3],
+        "main": main, "related": related, "related_more": max(0, len(tick) - 4),
+    }
 
 
 # ── 거시 ─────────────────────────────────────────────────────

@@ -34,6 +34,8 @@ def build(cls=BlockingScheduler):
                                                           timezone=TZ), id="us_intraday")
     # 환율 : 월~토 10분 간격 (외환시장은 평일 거의 24시간, 토요일 새벽 뉴욕 마감까지. 일요일은 쉼)
     sch.add_job(tasks.job_fx_rates, CronTrigger(day_of_week="mon-sat", minute="*/10", timezone=TZ), id="fx")
+    # 시그널 화면 종목 시세 : 10분 간격 (뉴스 수집 직후에 새 종목을 받도록 5분 어긋나게)
+    sch.add_job(tasks.job_signal_prices, CronTrigger(minute="5-59/10", timezone=TZ), id="signal_prices")
     # 장 마감 확정치·지수·업종 히트맵 : 평일 16:10 (해외 지수는 다음 날 아침 07:10 에 한 번 더)
     sch.add_job(tasks.job_daily_close, CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=TZ),
                 id="close")

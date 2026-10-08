@@ -16,8 +16,8 @@ from ..core import http
 from ..core.config import get_settings, load_yaml
 from ..core.market_calendar import is_market_open, is_trading_day, is_us_market, is_us_market_open
 from ..db.models import (
-    ApiUsage, Article, ArticleBody, DartCorpCode, JobRun, MacroSeries, Price, SectorIndex, Ticker,
-    UserSession, UserWatchlist,
+    ApiUsage, Article, ArticleBody, DartCorpCode, Issue, IssueTicker, JobRun, MacroSeries, Price, SectorIndex,
+    Ticker, UserSession, UserWatchlist,
 )
 from ..db.ops import upsert
 from ..db.session import session_scope
@@ -227,6 +227,49 @@ def job_fx_rates(days: int = 2) -> int:
     """환율 화면: 평일 10분마다 (외환시장은 거의 24시간 열려 장중 여부를 따지지 않는다)."""
     n, problems = save_fx_rates(days)
     return _raise_if_nothing(n, problems, "환율")
+
+
+SIGNAL_ISSUES = 40      # 시그널 화면에 나올 만한 상위 이슈 수
+SIGNAL_TICKERS = 40     # 한 번에 시세를 받는 종목 수 상한
+
+
+def save_signal_prices() -> tuple[int, list[str]]:
+    """시그널 화면 등락률용: 최근 24시간 상위 이슈에 나온 종목 중 관심종목이 아닌 것의 최근 시세.
+    (관심종목은 다른 작업이 이미 받는다.) 장중인 시장의 종목이거나 최근 시세가 없을 때만 받는다."""
+    from ..collectors.quotes import fetch_chain, stock_chain, to_price_rows
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    fresh = date.today() - timedelta(days=4)
+    with session_scope() as db:
+        top = select(Issue.id).where(Issue.last_seen >= since).order_by(Issue.importance.desc()).limit(SIGNAL_ISSUES)
+        rows = db.execute(select(Ticker.code, Ticker.market, Ticker.quote_code)
+                          .join(IssueTicker, IssueTicker.ticker == Ticker.code)
+                          .where(IssueTicker.issue_id.in_(top), Ticker.in_watchlist.is_(False))
+                          .distinct()).all()
+        have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_([r[0] for r in rows]),
+                                                         Price.day >= fresh).distinct()).all())
+    kr_open, us_open = is_market_open(), is_us_market_open()
+    total, problems = 0, []
+    for code, market, quote_code in rows[:SIGNAL_TICKERS]:
+        live = us_open if is_us_market(market) else kr_open
+        if code in have and not live:
+            continue
+        bars, src, errs = fetch_chain(stock_chain(code, market, quote_code), 3)
+        if not bars:
+            problems.append(f"{code}: " + " / ".join(errs))
+            continue
+        out = to_price_rows(code, bars, src)[1:]   # 첫 봉은 등락률 계산용
+        _save_rows(Price, out, ["symbol", "day"])
+        total += len(out)
+    return total, problems
+
+
+@tracked
+def job_signal_prices() -> int:
+    """시그널 화면 종목 시세: 10분마다 (받을 종목이 없으면 바로 끝난다)."""
+    n, problems = save_signal_prices()
+    for p in problems:
+        log.warning("시그널 시세 수집 실패 %s", p)
+    return n
 
 
 @tracked

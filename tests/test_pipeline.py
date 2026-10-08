@@ -108,3 +108,32 @@ def test_disclosure_joins_same_ticker_issue_only():
                       kinds=["news", "news", "disclosure", "disclosure"])
     groups = sorted(sorted(c.members) for c in clusters)
     assert groups == [[0, 1, 2], [3]]
+
+
+def test_topics_category_keywords_reason():
+    from issue_stream.pipeline import topics
+    titles = ["SK하이닉스 HBM4 양산 돌입…엔비디아 공급 확대", "SK하이닉스, HBM4 양산 돌입 엔비디아 공급 확대 기대",
+              "SK하이닉스 HBM4 양산 돌입 소식에 신고가"]
+    assert topics.classify(titles) == "신제품·기술"
+    kw = topics.keywords(titles, ["SK하이닉스", "엔비디아"])
+    assert kw[0] == "HBM4 양산" and "공급 확대" in kw           # 원래 표기 유지, 종목명 제외
+    assert all("SK하이닉스" not in k for k in kw)
+    assert topics.keywords(["원달러 환율 1,380원대 하락"])[1] == "1,380원대 하락"   # 숫자 쉼표는 자르지 않음
+    assert topics.reason("[속보] 삼성전자, 3분기 영업이익 10조원 돌파…시장 예상 상회", ["삼성전자"]) == \
+        "3분기 영업이익 10조원 돌파"
+    assert topics.classify(["오늘의 날씨"]) == topics.DEFAULT_CATEGORY
+
+
+def test_summaries_carry_signal_fields():
+    arts = _articles()
+    for a in arts:
+        a.ticker_names = ["삼성전자"]
+    s = ExtractiveSummarizer().summarize(arts)
+    assert s.category == "실적" and s.keywords and s.reason
+    assert all("삼성전자" not in k for k in s.keywords)
+    # LLM 이 목록 밖 주제·긴 키워드를 주면 규칙으로 고친다
+    raw = ('{"headline":"h","bullets":[],"sentiment":"neutral","affected_tickers":[],"confidence":0.5,'
+           '"conflicting_views":false,"source_article_ids":[],"category":"반도체 호황",'
+           '"keywords":["이건 열두 글자를 훨씬 넘는 너무 긴 키워드"],"reason":"HBM 판매 확대로"}')
+    p = _parse(raw, "ollama:test", arts)
+    assert p.category == "실적" and p.keywords and p.reason == "HBM 판매 확대로"

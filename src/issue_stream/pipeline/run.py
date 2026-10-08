@@ -258,10 +258,12 @@ def enrich_issues(db: Session) -> int:
         if need:
             bodies = dict(db.execute(select(ArticleBody.article_id, ArticleBody.body)
                                      .where(ArticleBody.article_id.in_([a.id for a in arts]))).all())
+            names = dict(db.execute(select(Ticker.code, Ticker.name).where(Ticker.code.in_(codes))).all())
             summary = summarizer.summarize([
                 ArticleInput(id=str(a.id), title=a.title, publisher=a.publisher, published_at=a.published_at,
                              snippet=a.snippet, body=bodies.get(a.id), kind=a.kind, sentiment=a.sentiment,
-                             tickers=list(a.tickers or []))
+                             tickers=list(a.tickers or []),
+                             ticker_names=[names[c] for c in (a.tickers or []) if c in names])
                 for a in arts])
             db.execute(update(IssueSummaryRow).where(IssueSummaryRow.issue_id == issue.id)
                        .values(is_current=False))

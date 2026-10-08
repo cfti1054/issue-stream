@@ -178,6 +178,39 @@ export interface SectorBlock {
   items: SectorItem[];
 }
 
+export interface SignalQuote {
+  code: string;
+  name: string;
+  market: string | null;
+  close: number | null;
+  change_pct: number | null;
+  day: string | null;
+}
+
+export interface SignalRow {
+  issue_no: number;
+  importance: number;
+  sentiment: Sentiment;
+  last_seen: string;
+  headline: string;
+  category: string;        // 주제 (실적, 거시·금리 …)
+  keywords: string[];
+  reason: string;          // 대표 종목이 움직인 이유 한 줄
+  publisher_count: number;
+  publishers: string[];    // 먼저 보도한 매체 최대 3곳
+  main: SignalQuote & { is_index: boolean };   // 종목이 없는 이슈는 시장 지수
+  related: SignalQuote[];
+  related_more: number;
+}
+
+export interface SignalBoard {
+  region: "kr" | "us";
+  hours: number;
+  generated_at: string;
+  items: SignalRow[];
+  mine: SignalRow[];       // 로그인한 계정의 관심종목이 나온 이슈
+}
+
 export interface FxItem {
   symbol: string;        // "USD/KRW", "EUR/USD", "DXY"
   name: string;
@@ -242,6 +275,7 @@ export const api = {
   prices: (symbol: string, days = 120) =>
     get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}`),
   fx: () => get<FxBoard>("/market/fx"),
+  signals: (region: "kr" | "us", hours: number) => get<SignalBoard>(`/signals?region=${region}&hours=${hours}`),
   issues: (q: {
     hours?: number; ticker?: string; sentiment?: string; region?: string; sort?: string;
     q?: string; qt?: string; page?: number; page_size?: number;

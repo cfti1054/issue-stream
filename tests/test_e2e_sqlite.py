@@ -312,3 +312,16 @@ def test_retag_applies_current_dictionary(client):
         assert a.tickers == ["035720"] and a.ticker_keys == ",035720,"
     with session_scope() as db:
         assert retag_articles(db, datetime.now(timezone.utc) - timedelta(days=2))[0] == 0   # 두 번째는 변화 없음
+
+
+def test_signals(client, auth):
+    d = client.get("/signals?region=kr&hours=72").json()
+    rows = d["items"]
+    assert rows and d["mine"] == []                                  # 로그인 전에는 내 관심 시그널 없음
+    r = next(x for x in rows if x["main"]["code"] == "005930")
+    assert r["category"] == "실적" and r["keywords"] and r["reason"]
+    assert r["main"]["change_pct"] is not None and r["publisher_count"] >= 3
+    assert any(x["main"]["is_index"] for x in rows)                 # 종목 없는 이슈(금리)는 코스피로
+    m = client.get("/signals?region=kr&hours=72", headers=auth).json()
+    assert any(x["main"]["code"] == "005930" for x in m["mine"])     # 관심종목 이슈는 mine 으로
+    assert all(x["main"]["code"] != "005930" for x in m["items"])
