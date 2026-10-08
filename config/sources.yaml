@@ -72,6 +72,16 @@ fx_rates:
   - {symbol: "EUR/USD", name: "유로/달러"}
   - {symbol: "USD/JPY", name: "달러/엔"}
 
+# 환율·원자재 화면의 원자재. unit 은 화면 표시 단위. 환율과 같은 작업(평일 10분마다)이 갱신한다.
+# 국내 금은 네이버(KRX 금현물), 국제 시세는 야후 선물(근월물) 기준.
+commodities:
+  - {symbol: "CMDT:GOLD_KRX", name: "국내 금", unit: "원/g"}
+  - {symbol: "CMDT:GOLD", name: "국제 금", unit: "$/oz"}
+  - {symbol: "CMDT:SILVER", name: "국제 은", unit: "$/oz"}
+  - {symbol: "CMDT:WTI", name: "WTI 원유", unit: "$/배럴"}
+  - {symbol: "CMDT:BRENT", name: "브렌트유", unit: "$/배럴"}
+  - {symbol: "CMDT:COPPER", name: "구리", unit: "$/lb"}
+
 # 업종 히트맵: 업종 ETF 의 전일 대비 등락률로 그린다 (KRX 업종 지수는 로그인이 필요해 대체).
 # name 은 화면 표시 이름, code 는 ETF 종목코드. doctor 가 실제 ETF 이름을 보여주니 맞는지 확인할 것.
 sector_etfs:

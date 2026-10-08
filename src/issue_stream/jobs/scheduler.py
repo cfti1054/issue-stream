@@ -32,7 +32,7 @@ def build(cls=BlockingScheduler):
     # 미국 장중 시세 : 한국 시간 22~06시 10분 간격 (서머타임·휴장일은 작업 안에서 Skip)
     sch.add_job(tasks.job_us_intraday_prices, CronTrigger(day_of_week="mon-sat", hour="22-23,0-6", minute="*/10",
                                                           timezone=TZ), id="us_intraday")
-    # 환율 : 월~토 10분 간격 (외환시장은 평일 거의 24시간, 토요일 새벽 뉴욕 마감까지. 일요일은 쉼)
+    # 환율·원자재 : 월~토 10분 간격 (외환시장은 평일 거의 24시간, 토요일 새벽 뉴욕 마감까지. 일요일은 쉼)
     sch.add_job(tasks.job_fx_rates, CronTrigger(day_of_week="mon-sat", minute="*/10", timezone=TZ), id="fx")
     # 시그널 화면 종목 시세 : 10분 간격 (뉴스 수집 직후에 새 종목을 받도록 5분 어긋나게)
     sch.add_job(tasks.job_signal_prices, CronTrigger(minute="5-59/10", timezone=TZ), id="signal_prices")
@@ -65,7 +65,8 @@ def bootstrap() -> None:
         wl = list(db.scalars(select(Ticker.code).where(Ticker.in_watchlist.is_(True))).all())
         have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_(wl), Price.source != "demo")
                               .distinct()).all())
-        fx = [it["symbol"] for it in load_yaml("sources.yaml").get("fx_rates", [])]
+        cfg = load_yaml("sources.yaml")
+        fx = [it["symbol"] for it in cfg.get("fx_rates", []) + cfg.get("commodities", [])]
         fx_have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_(fx)).distinct()).all())
     if n_tickers < MIN_KR_TICKERS:   # 첫 실행이거나 지난 동기화가 실패해 관심종목 정도만 있을 때
         log.info("국내 종목 목록 %d개 → 동기화 (태깅 사전)", n_tickers)
@@ -78,8 +79,8 @@ def bootstrap() -> None:
         tasks.job_backfill_prices()
     else:
         tasks.job_backfill_prices(days=5)
-        if set(fx) - fx_have:   # 환율 화면을 처음 켰을 때
-            log.info("환율 과거 시세 채우기")
+        if set(fx) - fx_have:   # 환율·원자재 화면에 새 항목이 생겼을 때
+            log.info("환율·원자재 과거 시세 채우기")
             tasks.job_fx_rates(days=130)
     log.info("뉴스 수집·이슈 묶기 시작")
     tasks.job_news_pipeline()

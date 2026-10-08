@@ -120,8 +120,9 @@ def save_index_strip(n: int, region: str | None = None) -> tuple[int, list[str]]
 
 
 def save_fx_rates(n: int) -> tuple[int, list[str]]:
-    """환율 화면(sources.yaml fx_rates) 시세."""
-    return _save_symbols(load_yaml("sources.yaml").get("fx_rates", []), n)
+    """환율·원자재 화면(sources.yaml fx_rates + commodities) 시세."""
+    cfg = load_yaml("sources.yaml")
+    return _save_symbols(cfg.get("fx_rates", []) + cfg.get("commodities", []), n)
 
 
 def _save_symbols(items: list, n: int) -> tuple[int, list[str]]:
@@ -224,9 +225,9 @@ def job_backfill_prices(days: int = 130) -> int:
 
 @tracked
 def job_fx_rates(days: int = 2) -> int:
-    """환율 화면: 평일 10분마다 (외환시장은 거의 24시간 열려 장중 여부를 따지지 않는다)."""
+    """환율·원자재 화면: 평일 10분마다 (외환·선물 시장은 거의 24시간 열려 장중 여부를 따지지 않는다)."""
     n, problems = save_fx_rates(days)
-    return _raise_if_nothing(n, problems, "환율")
+    return _raise_if_nothing(n, problems, "환율·원자재")
 
 
 SIGNAL_ISSUES = 40      # 시그널 화면에 나올 만한 상위 이슈 수

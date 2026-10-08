@@ -8,7 +8,7 @@ KRX 정보데이터시스템은 2024-12 부터 로그인이 필요해 pykrx·Fin
   3) FinanceDataReader        — 마지막 대체
 
 소스 표기:  "naver:stock:005930", "naver:world:NVDA.O", "naver:index:KOSPI", "naver:worldindex:.INX",
-           "naver:fx:FX_USDKRW",
+           "naver:fx:FX_USDKRW", "naver:metal:M04020000"(KRX 금현물),
            "yahoo:^GSPC", "fdr:US500"
            "*100" 을 붙이면 값에 곱한다 (예: "yahoo:JPYKRW=X*100" → 1엔당 시세를 100엔당으로).
 미국 종목은 tickers.code 가 티커(NVDA), tickers.quote_code 가 네이버 조회 코드(NVDA.O, NYSE 는 대개 접미사 없음).
@@ -128,6 +128,9 @@ def naver(kind: str, code: str, n: int) -> list[Bar]:
     if kind == "fx":
         # 원화 환율(하나은행 고시 매매기준율). 엔화는 100엔당. 2026-10 기존 front-api/v1 경로가 404 로 바뀜
         return _naver_paged(f"/marketindex/exchange/{code}/prices", n, base=NAVER_WORLD)
+    if kind == "metal":
+        # 국내 금 시세 (M04020000 = KRX 금현물, 원/g)
+        return _naver_paged(f"/marketindex/metals/{code}/prices", n, base=NAVER_WORLD)
     if kind == "world":
         return naver_world(code, n)
     if kind == "worldindex":
@@ -288,6 +291,13 @@ INDEX_CHAINS: dict[str, list[str]] = {
     "EUR/USD": ["yahoo:EURUSD=X", "fdr:EUR/USD"],
     "USD/JPY": ["yahoo:USDJPY=X", "fdr:USD/JPY"],
     "DXY": ["yahoo:DX-Y.NYB"],
+    # 원자재 (sources.yaml commodities). 종목 티커(GOLD·CL 등)와 겹치지 않게 CMDT: 를 붙인다
+    "CMDT:GOLD_KRX": ["naver:metal:M04020000"],          # 국내 금 원/g
+    "CMDT:GOLD": ["yahoo:GC=F"],                          # 국제 금 달러/온스 (뉴욕 선물)
+    "CMDT:SILVER": ["yahoo:SI=F"],                        # 국제 은 달러/온스
+    "CMDT:WTI": ["yahoo:CL=F"],                           # WTI 원유 달러/배럴
+    "CMDT:BRENT": ["yahoo:BZ=F"],                         # 브렌트유 달러/배럴
+    "CMDT:COPPER": ["yahoo:HG=F"],                        # 구리 달러/파운드
 }
 
 

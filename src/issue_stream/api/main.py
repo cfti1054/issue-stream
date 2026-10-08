@@ -9,7 +9,7 @@
   이슈 브리핑    GET /issues                      이슈 카드 (근거 기사·보도량 추이 포함)
                  GET /issues/{no}                 이슈 상세 (확산 타임라인)
   시그널         GET /signals                     이슈 주제 → 대표 종목(이유·등락률) → 연관 종목
-  환율           GET /market/fx                   원화 환율·달러 지표
+  환율·원자재    GET /market/fx                   원화 환율·달러 지표·금·은·원유·구리
   로그인·가입    POST /auth/login, /auth/signup, /auth/logout, GET /auth/me, /auth/config   (api/auth.py)
   관심종목       GET /me/watchlist, PUT·DELETE /me/watchlist/{code}, GET /tickers/search
   번호           이슈·기사·계정은 화면용 번호 no 로 내보낸다. 내부 PK id 는 FK 전용 (db/sequences.py)
@@ -169,7 +169,7 @@ def _sectors(s: Session, market: str = "ETF") -> dict:
 
 JOB_LABELS = {
     "job_news_pipeline": "뉴스 수집", "job_backfill_prices": "시세", "job_daily_close": "시세(마감)",
-    "job_intraday_prices": "시세(장중)", "job_fx_rates": "환율", "job_sync_tickers": "종목 목록",
+    "job_intraday_prices": "시세(장중)", "job_fx_rates": "환율·원자재", "job_sync_tickers": "종목 목록",
     "job_macro": "거시 지표",
 }
 STALE_DAYS = 4
@@ -244,23 +244,47 @@ def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
                         "volume": r.volume, "change_pct": r.change_pct} for r in rows]}
 
 
+TROY_OUNCE_G = 31.1034768   # 금·은 1트로이온스 = 31.1g
+
+
+def _board_item(s: Session, item: dict) -> dict | None:
+    rows = _series(s, item["symbol"], 130)
+    if not rows:
+        return None
+    chg, pct = _change(rows)
+    closes = [r.close for r in rows]
+    return {"symbol": item["symbol"], "name": item["name"], "close": rows[-1].close, "change": chg,
+            "change_pct": pct, "day": rows[-1].day, "stale": (date.today() - rows[-1].day).days > STALE_DAYS,
+            "high": max(closes), "low": min(closes), "since": rows[0].day, "spark": closes[-30:]}
+
+
 @app.get("/market/fx")
 def fx_rates(s: Session = Depends(db)):
-    """환율 화면. 원화 환율(unit 단위당 원)과 달러 지표(달러 인덱스·교차 환율). 기간 최고·최저는 최근 약 6개월."""
-    out = []
-    for item in load_yaml("sources.yaml").get("fx_rates", []):
-        rows = _series(s, item["symbol"], 130)
-        if not rows:
-            continue
-        chg, pct = _change(rows)
-        closes = [r.close for r in rows]
-        out.append({"symbol": item["symbol"], "name": item["name"], "currency": item.get("currency"),
-                    "unit": item.get("unit", 1), "close": rows[-1].close, "change": chg, "change_pct": pct,
-                    "day": rows[-1].day, "stale": (date.today() - rows[-1].day).days > STALE_DAYS,
-                    "high": max(closes), "low": min(closes), "since": rows[0].day,
-                    "spark": closes[-30:]})
+    """환율·원자재 화면. 기간 최고·최저는 최근 약 6개월.
+    items       원화 환율(unit 단위당 원)과 달러 지표(달러 인덱스·교차 환율)
+    commodities 금·은·원유·구리 (unit_label: 원/g, $/oz …)
+    gold        국제 금을 원/달러로 환산한 원/g 과 국내 금(KRX)과의 차이(%)"""
+    cfg = load_yaml("sources.yaml")
+    items, commodities = [], []
+    for item in cfg.get("fx_rates", []):
+        if (row := _board_item(s, item)) is not None:
+            items.append(row | {"currency": item.get("currency"), "unit": item.get("unit", 1)})
+    for item in cfg.get("commodities", []):
+        if (row := _board_item(s, item)) is not None:
+            commodities.append(row | {"unit_label": item.get("unit", "")})
     last = s.scalar(select(func.max(JobRun.finished_at)).where(JobRun.job == "job_fx_rates", JobRun.status == "ok"))
-    return {"updated_at": last, "items": out}
+    return {"updated_at": last, "items": items, "commodities": commodities, "gold": _gold_premium(s)}
+
+
+def _gold_premium(s: Session) -> dict | None:
+    """국제 금(달러/온스) × 원/달러 ÷ 31.1 = 원/g. 국내 금이 이보다 비싸면 프리미엄(+)."""
+    krx, intl, usd = (_series(s, sym, 1) for sym in ("CMDT:GOLD_KRX", "CMDT:GOLD", "USD/KRW"))
+    if not (krx and intl and usd):
+        return None
+    per_g = intl[-1].close * usd[-1].close / TROY_OUNCE_G
+    return {"domestic": krx[-1].close, "intl_krw_per_g": round(per_g, 1),
+            "premium_pct": round((krx[-1].close / per_g - 1) * 100, 2), "usdkrw": usd[-1].close,
+            "day": min(krx[-1].day, intl[-1].day, usd[-1].day)}
 
 
 BACKFILL_DAYS = 130   # 처음 여는 종목의 과거 시세 (차트 '전체' 범위)

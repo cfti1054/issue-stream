@@ -355,3 +355,21 @@ def test_single_issue(client):
     one = client.get(f"/issues/{no}").json()
     assert one["no"] == no and one["articles"]
     assert client.get("/issues/999999").status_code == 404
+
+
+def test_fx_board_with_commodities(client):
+    """환율·원자재: 원자재 카드와 국내 금 프리미엄 (국제 금 × 원/달러 ÷ 31.1g)."""
+    from datetime import date
+
+    from issue_stream.db.models import Price
+    from issue_stream.db.ops import upsert
+    from issue_stream.db.session import session_scope
+    with session_scope() as db:
+        for sym, close in (("CMDT:GOLD_KRX", 180_000.0), ("CMDT:GOLD", 4000.0), ("CMDT:WTI", 90.0)):
+            upsert(db, Price, dict(symbol=sym, day=date.today(), close=close, source="test"), ["symbol", "day"])
+    d = client.get("/market/fx").json()
+    names = {c["symbol"]: c for c in d["commodities"]}
+    assert names["CMDT:GOLD_KRX"]["unit_label"] == "원/g" and names["CMDT:WTI"]["unit_label"] == "$/배럴"
+    g = d["gold"]
+    assert abs(g["intl_krw_per_g"] - 4000 * g["usdkrw"] / 31.1034768) < 0.1
+    assert (g["premium_pct"] > 0) == (180_000 > g["intl_krw_per_g"])

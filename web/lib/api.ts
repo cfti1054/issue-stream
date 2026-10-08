@@ -211,11 +211,10 @@ export interface SignalBoard {
   mine: SignalRow[];       // 로그인한 계정의 관심종목이 나온 이슈
 }
 
-export interface FxItem {
-  symbol: string;        // "USD/KRW", "EUR/USD", "DXY"
+/** 환율·원자재 화면 카드 1장 공통 */
+export interface BoardItem {
+  symbol: string;        // "USD/KRW", "EUR/USD", "DXY", "CMDT:GOLD" …
   name: string;
-  currency: string | null; // 원화 환율이면 외화 코드 (USD, JPY …)
-  unit: number;          // 원화 환율: unit 외화당 원 (엔화 100)
   close: number;
   change: number | null;
   change_pct: number | null;
@@ -227,9 +226,28 @@ export interface FxItem {
   spark: number[];
 }
 
+export interface FxItem extends BoardItem {
+  currency: string | null; // 원화 환율이면 외화 코드 (USD, JPY …)
+  unit: number;          // 원화 환율: unit 외화당 원 (엔화 100)
+}
+
+export interface CommodityItem extends BoardItem {
+  unit_label: string;    // "원/g", "$/oz", "$/배럴", "$/lb"
+}
+
+export interface GoldPremium {
+  domestic: number;        // 국내 금 (KRX) 원/g
+  intl_krw_per_g: number;  // 국제 금을 원/달러로 환산한 원/g
+  premium_pct: number;     // 국내가 국제 환산가보다 비싼 정도 (%)
+  usdkrw: number;
+  day: string;
+}
+
 export interface FxBoard {
   updated_at: string | null;
   items: FxItem[];
+  commodities: CommodityItem[];
+  gold: GoldPremium | null;
 }
 
 export interface PriceSeries {

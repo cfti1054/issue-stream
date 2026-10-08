@@ -452,3 +452,8 @@ a.pg-btn:hover { text-decoration: none; background: var(--surface-2); }
 /* 이슈 1건 보기 (/issues?no=): 근거 기사 10건 이상이면 약 9건 높이로 스크롤 */
 .issue-single { max-width: 880px; }
 .issue-single .ev-list.ev-scroll { max-height: 480px; }
+.fx-gold { margin: 10px 0 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--ink-2); }
+.fx-gold > b { color: var(--ink); }
+/* 원자재 카드 6장: 이름·등락이 두 줄로 꺾이지 않게 */
+.fx-tight .index-card .label, .fx-tight .index-card .chg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
