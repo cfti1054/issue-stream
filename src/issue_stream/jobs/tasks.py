@@ -113,12 +113,23 @@ def save_watchlist_prices(n: int, codes: list[str] | None = None, region: str | 
 
 def save_index_strip(n: int, region: str | None = None) -> tuple[int, list[str]]:
     """지수 스트립 시세. region="us" 면 미국 지수(S&P 500·나스닥·다우)만, "kr" 이면 그 밖(코스피·코스닥·환율)만."""
-    from ..collectors.quotes import US_INDEX_SYMBOLS, fetch_chain, index_chain, to_price_rows
+    from ..collectors.quotes import US_INDEX_SYMBOLS
+    items = [it for it in load_yaml("sources.yaml").get("index_strip", [])
+             if not region or ((it["symbol"] if isinstance(it, dict) else it) in US_INDEX_SYMBOLS) == (region == "us")]
+    return _save_symbols(items, n)
+
+
+def save_fx_rates(n: int) -> tuple[int, list[str]]:
+    """환율 화면(sources.yaml fx_rates) 시세."""
+    return _save_symbols(load_yaml("sources.yaml").get("fx_rates", []), n)
+
+
+def _save_symbols(items: list, n: int) -> tuple[int, list[str]]:
+    """지수·환율처럼 종목 마스터에 없는 심볼의 최근 n 거래일 시세 저장."""
+    from ..collectors.quotes import fetch_chain, index_chain, to_price_rows
     total, problems = 0, []
-    for item in load_yaml("sources.yaml").get("index_strip", []):
+    for item in items:
         sym = item["symbol"] if isinstance(item, dict) else item
-        if region and (sym in US_INDEX_SYMBOLS) != (region == "us"):
-            continue
         bars, src, errs = fetch_chain(index_chain(item), n + 1)
         if not bars:
             problems.append(f"{sym}: " + " / ".join(errs))
@@ -207,7 +218,15 @@ def job_backfill_prices(days: int = 130) -> int:
     n1, p1 = save_watchlist_prices(days)
     n2, p2 = save_index_strip(days)
     n3, p3 = save_sectors()
-    return _raise_if_nothing(n1 + n2 + n3, p1 + p2 + p3, "과거 시세")
+    n4, p4 = save_fx_rates(days)
+    return _raise_if_nothing(n1 + n2 + n3 + n4, p1 + p2 + p3 + p4, "과거 시세")
+
+
+@tracked
+def job_fx_rates(days: int = 2) -> int:
+    """환율 화면: 평일 10분마다 (외환시장은 거의 24시간 열려 장중 여부를 따지지 않는다)."""
+    n, problems = save_fx_rates(days)
+    return _raise_if_nothing(n, problems, "환율")
 
 
 @tracked

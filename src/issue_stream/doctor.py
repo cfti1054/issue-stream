@@ -100,7 +100,8 @@ def check_quotes() -> tuple[int, int]:
     from .core.config import load_yaml
     print("\n■ 시세 (위에서부터 순서대로 시도, 하나만 되어도 동작)")
     ok = bad = 0
-    for item in load_yaml("sources.yaml").get("index_strip", []):
+    cfg = load_yaml("sources.yaml")
+    for item in cfg.get("index_strip", []) + [x for x in cfg.get("fx_rates", []) if x["symbol"] != "USD/KRW"]:
         name = item["name"] if isinstance(item, dict) else item
         r = _try_each(name, index_chain(item))
         ok += r

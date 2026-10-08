@@ -10,6 +10,7 @@ KRX 정보데이터시스템은 2024-12 부터 로그인이 필요해 pykrx·Fin
 소스 표기:  "naver:stock:005930", "naver:world:NVDA.O", "naver:index:KOSPI", "naver:worldindex:.INX",
            "naver:fx:FX_USDKRW",
            "yahoo:^GSPC", "fdr:US500"
+           "*100" 을 붙이면 값에 곱한다 (예: "yahoo:JPYKRW=X*100" → 1엔당 시세를 100엔당으로).
 미국 종목은 tickers.code 가 티커(NVDA), tickers.quote_code 가 네이버 조회 코드(NVDA.O, NYSE 는 대개 접미사 없음).
 `issue-stream doctor` 로 PC 에서 각 소스가 실제로 응답하는지 확인할 수 있다.
 """
@@ -106,11 +107,11 @@ def _dedupe_sort(bars: list[Bar]) -> list[Bar]:
 
 
 # ── 1) 네이버 ─────────────────────────────────────────────────
-def _naver_paged(path: str, n: int, extra: dict | None = None) -> list[Bar]:
+def _naver_paged(path: str, n: int, extra: dict | None = None, base: str = NAVER) -> list[Bar]:
     bars: list[Bar] = []
     for page in range(1, 10):
         params = {"pageSize": PAGE, "page": page, **(extra or {})}
-        rows = _rows(get_json("naver", f"{NAVER}{path}", params=params, retries=2))
+        rows = _rows(get_json("naver", f"{base}{path}", params=params, retries=2))
         if not rows:
             break
         bars += [b for b in (naver_bar(r) for r in rows) if b]
@@ -125,7 +126,8 @@ def naver(kind: str, code: str, n: int) -> list[Bar]:
     if kind == "index":
         return _naver_paged(f"/api/index/{code}/price", n)
     if kind == "fx":
-        return _naver_paged("/front-api/v1/marketIndex/prices", n, {"category": "exchange", "reutersCode": code})
+        # 원화 환율(하나은행 고시 매매기준율). 엔화는 100엔당. 2026-10 기존 front-api/v1 경로가 404 로 바뀜
+        return _naver_paged(f"/marketindex/exchange/{code}/prices", n, base=NAVER_WORLD)
     if kind == "world":
         return naver_world(code, n)
     if kind == "worldindex":
@@ -176,6 +178,18 @@ def _df_bars(df) -> list[Bar]:
 
 # ── 체인 ─────────────────────────────────────────────────────
 def fetch(source: str, n: int) -> list[Bar]:
+    source, _, mul = source.partition("*")
+    bars = _fetch(source, n)
+    if mul:
+        k = float(mul)
+        for b in bars:
+            for f in ("open", "high", "low", "close"):
+                if b[f] is not None:
+                    b[f] *= k
+    return bars
+
+
+def _fetch(source: str, n: int) -> list[Bar]:
     parts = source.split(":", 2)
     if parts[0] == "naver":
         return naver(parts[1], parts[2], n)
@@ -266,6 +280,14 @@ INDEX_CHAINS: dict[str, list[str]] = {
     "IXIC": ["naver:worldindex:.IXIC", "yahoo:^IXIC", "fdr:IXIC"],
     "DJI": ["naver:worldindex:.DJI", "yahoo:^DJI", "fdr:DJI"],
     "USD/KRW": ["naver:fx:FX_USDKRW", "yahoo:KRW=X", "fdr:USD/KRW"],
+    # 환율 화면 (sources.yaml fx_rates). 원화 환율은 네이버(하나은행 고시) → 야후, 해외 교차 환율은 야후
+    "JPY/KRW": ["naver:fx:FX_JPYKRW", "yahoo:JPYKRW=X*100"],   # 100엔당
+    "EUR/KRW": ["naver:fx:FX_EURKRW", "yahoo:EURKRW=X"],
+    "CNY/KRW": ["naver:fx:FX_CNYKRW", "yahoo:CNYKRW=X"],
+    "GBP/KRW": ["naver:fx:FX_GBPKRW", "yahoo:GBPKRW=X"],
+    "EUR/USD": ["yahoo:EURUSD=X", "fdr:EUR/USD"],
+    "USD/JPY": ["yahoo:USDJPY=X", "fdr:USD/JPY"],
+    "DXY": ["yahoo:DX-Y.NYB"],
 }
 
 

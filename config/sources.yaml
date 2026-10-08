@@ -60,6 +60,18 @@ index_strip:
   - {symbol: "IXIC", name: "나스닥"}
   - {symbol: "USD/KRW", name: "원/달러"}
 
+# 환율 화면. unit 은 표시 단위(엔화는 100엔당). sources 를 생략하면 collectors/quotes.py 의 기본 체인
+# (원화 환율: 네이버 하나은행 고시 → 야후, 교차 환율·달러 인덱스: 야후). 평일 10분마다 갱신.
+fx_rates:
+  - {symbol: "USD/KRW", name: "미국 달러", currency: USD, unit: 1}
+  - {symbol: "JPY/KRW", name: "일본 엔", currency: JPY, unit: 100}
+  - {symbol: "EUR/KRW", name: "유로", currency: EUR, unit: 1}
+  - {symbol: "CNY/KRW", name: "중국 위안", currency: CNY, unit: 1}
+  - {symbol: "GBP/KRW", name: "영국 파운드", currency: GBP, unit: 1}
+  - {symbol: "DXY", name: "달러 인덱스"}
+  - {symbol: "EUR/USD", name: "유로/달러"}
+  - {symbol: "USD/JPY", name: "달러/엔"}
+
 # 업종 히트맵: 업종 ETF 의 전일 대비 등락률로 그린다 (KRX 업종 지수는 로그인이 필요해 대체).
 # name 은 화면 표시 이름, code 는 ETF 종목코드. doctor 가 실제 ETF 이름을 보여주니 맞는지 확인할 것.
 sector_etfs:

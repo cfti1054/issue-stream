@@ -385,3 +385,14 @@ a.pg-btn:hover { text-decoration: none; background: var(--surface-2); }
 .pg-btn[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pg-btn[aria-disabled="true"] { opacity: 0.35; }
 @media (max-width: 640px) { .issue-search, .issue-search.compact { flex-basis: 100%; max-width: none; } }
+
+/* ── 환율 ─────────────────────────────────────────────────── */
+.fx-card { color: inherit; }
+.fx-card:hover { text-decoration: none; background: var(--surface-2); }
+.fx-card[aria-current="true"] { box-shadow: 0 0 0 2px var(--accent); }
+.fx-conv { display: grid; gap: 10px; max-width: 420px; }
+.fx-conv-row { display: flex; align-items: center; gap: 8px; }
+.fx-conv-row .input { flex: 1; min-width: 0; font-size: var(--fs-num-m); }
+.fx-conv-out { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fx-conv-cur { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 10px; }
+.fx-swap { justify-self: start; }

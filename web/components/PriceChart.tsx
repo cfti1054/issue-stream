@@ -12,7 +12,9 @@ const RANGES = [
 
 const W = 640, H = 240, L = 8, R = 56, T = 10, B = 24;
 
-export default function PriceChart({ points, isIndex = false }: { points: PricePoint[]; isIndex?: boolean }) {
+export default function PriceChart({ points, isIndex = false, digits: fixedDigits }: {
+  points: PricePoint[]; isIndex?: boolean; digits?: number;
+}) {
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("3M");
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -36,7 +38,7 @@ export default function PriceChart({ points, isIndex = false }: { points: PriceP
   const periodPct = (last / first - 1) * 100;
   const color = last >= first ? "var(--up-mark)" : "var(--down-mark)";
   const ticks = niceTicks(min, max, 4);
-  const digits = isIndex ? 2 : 0;
+  const digits = fixedDigits ?? (isIndex ? 2 : 0);
   const dateTicks = [0, Math.floor((data.length - 1) / 2), data.length - 1];
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {

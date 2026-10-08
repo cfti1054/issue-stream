@@ -163,7 +163,8 @@ def _sectors(s: Session, market: str = "ETF") -> dict:
 
 JOB_LABELS = {
     "job_news_pipeline": "뉴스 수집", "job_backfill_prices": "시세", "job_daily_close": "시세(마감)",
-    "job_intraday_prices": "시세(장중)", "job_sync_tickers": "종목 목록", "job_macro": "거시 지표",
+    "job_intraday_prices": "시세(장중)", "job_fx_rates": "환율", "job_sync_tickers": "종목 목록",
+    "job_macro": "거시 지표",
 }
 STALE_DAYS = 4
 
@@ -227,6 +228,25 @@ def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
             "is_stock": t is not None,   # 지수·환율은 종목 마스터에 없다
             "points": [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
                         "volume": r.volume, "change_pct": r.change_pct} for r in rows]}
+
+
+@app.get("/market/fx")
+def fx_rates(s: Session = Depends(db)):
+    """환율 화면. 원화 환율(unit 단위당 원)과 달러 지표(달러 인덱스·교차 환율). 기간 최고·최저는 최근 약 6개월."""
+    out = []
+    for item in load_yaml("sources.yaml").get("fx_rates", []):
+        rows = _series(s, item["symbol"], 130)
+        if not rows:
+            continue
+        chg, pct = _change(rows)
+        closes = [r.close for r in rows]
+        out.append({"symbol": item["symbol"], "name": item["name"], "currency": item.get("currency"),
+                    "unit": item.get("unit", 1), "close": rows[-1].close, "change": chg, "change_pct": pct,
+                    "day": rows[-1].day, "stale": (date.today() - rows[-1].day).days > STALE_DAYS,
+                    "high": max(closes), "low": min(closes), "since": rows[0].day,
+                    "spark": closes[-30:]})
+    last = s.scalar(select(func.max(JobRun.finished_at)).where(JobRun.job == "job_fx_rates", JobRun.status == "ok"))
+    return {"updated_at": last, "items": out}
 
 
 @app.get("/me/watchlist")

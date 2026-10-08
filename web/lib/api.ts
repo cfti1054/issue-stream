@@ -178,6 +178,27 @@ export interface SectorBlock {
   items: SectorItem[];
 }
 
+export interface FxItem {
+  symbol: string;        // "USD/KRW", "EUR/USD", "DXY"
+  name: string;
+  currency: string | null; // 원화 환율이면 외화 코드 (USD, JPY …)
+  unit: number;          // 원화 환율: unit 외화당 원 (엔화 100)
+  close: number;
+  change: number | null;
+  change_pct: number | null;
+  day: string;
+  stale: boolean;
+  high: number;          // 최근 약 6개월 최고·최저
+  low: number;
+  since: string;
+  spark: number[];
+}
+
+export interface FxBoard {
+  updated_at: string | null;
+  items: FxItem[];
+}
+
 export interface PriceSeries {
   symbol: string;
   name: string;
@@ -220,6 +241,7 @@ export const api = {
   dashboard: (sort?: "importance" | "recent") => get<Dashboard>(`/dashboard${sort === "recent" ? "?sort=recent" : ""}`),
   prices: (symbol: string, days = 120) =>
     get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}`),
+  fx: () => get<FxBoard>("/market/fx"),
   issues: (q: {
     hours?: number; ticker?: string; sentiment?: string; region?: string; sort?: string;
     q?: string; qt?: string; page?: number; page_size?: number;
