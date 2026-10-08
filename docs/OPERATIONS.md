@@ -109,7 +109,8 @@ issue-stream doctor
 |---|---|
 | 같은 사건이 여러 이슈로 쪼개짐 | `tune-threshold` 로 분포 확인 후 `CLUSTER_SIM_THRESHOLD` 를 낮춤, 또는 `EMBEDDING_PROVIDER=local` |
 | 다른 사건이 한 이슈로 합쳐짐 | 임계값을 높임 |
-| 종목이 잘못 태깅됨 | `watchlist.yaml` 별칭 점검. 짧은 별칭(2글자)은 오탐이 많음 |
+| 종목이 잘못 태깅됨 | 일반명사와 같은 종목명(대상·TP 등)은 `config/tagging.yaml` 의 `exclude_names` 에 추가 → `issue-stream retag --days 7` 로 최근 기사 다시 태깅. 별칭은 `watchlist.yaml` |
+| 관련 종목 태그가 몇 종목에만 몰림 | 종목 목록 확인 `SELECT market, COUNT(*) FROM tickers GROUP BY market` → 적으면 `issue-stream sync-tickers` 후 `issue-stream retag --days 7` (태그는 수집 시점에 붙으므로 재태깅 필요) |
 | 공시가 뉴스 이슈에 안 붙음 | 공시가 먼저 들어와 따로 이슈가 생긴 경우. 이후 뉴스는 뉴스끼리 묶임 (알려진 한계, 5단계에서 개선) |
 | RSS 수집 0건 / 대시보드에 "뉴스 수집" 경고 | `issue-stream doctor` 로 실패한 피드 확인 후 `sources.yaml` 에서 `enabled: false` |
 | 지수·시세가 비어 있음 / 오래된 날짜 | `doctor` 의 시세 항목 확인. 회사망·VPN 이 네이버·야후를 막는 경우가 있음 |

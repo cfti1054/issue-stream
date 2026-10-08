@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Iterable
+from functools import lru_cache
 
 _HANGUL = re.compile(r"[가-힣]")
 
@@ -35,6 +36,21 @@ def classify(title: str, source_region: str | None, tickers: Iterable[str], us_c
     if any(k in title for k in US_MARKET) or (codes and codes <= us_codes):
         return "us"
     return "kr"
+
+
+def source_region(source: str) -> str | None:
+    """수집기가 정해 두는 지역을 소스 이름으로 복원 (이미 저장된 기사를 다시 판정할 때)."""
+    if source in ("google:us", "google:en", "yahoo"):
+        return "us"
+    if source.startswith("rss:"):
+        return _rss_regions().get(source)
+    return None
+
+
+@lru_cache
+def _rss_regions() -> dict[str, str]:
+    from ..core.config import load_yaml
+    return {f"rss:{f['name']}": f["region"] for f in load_yaml("sources.yaml").get("rss", []) if f.get("region")}
 
 
 def majority(regions: Iterable[str | None]) -> str:

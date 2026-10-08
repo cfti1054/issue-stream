@@ -9,10 +9,11 @@ import PriceChart from "@/components/PriceChart";
 import ErrorBox from "@/components/ErrorBox";
 import StatusBanner from "@/components/StatusBanner";
 import { HoldToggle, StarButton, WatchSearch } from "@/components/watch";
+import IssueSearch from "@/components/IssueSearch";
 
 export const dynamic = "force-dynamic";
 
-type Q = { ticker?: string; wl?: string; hm?: string; news?: string };
+type Q = { ticker?: string; wl?: string; hm?: string; news?: string; nsort?: string };
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Q> }) {
   const q = await searchParams;
@@ -21,7 +22,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const region = q.wl === "us" ? "us" : "kr";
   const hmRegion = q.hm === "us" ? "us" : "kr";
   const newsRegion = q.news === "us" ? "us" : "kr";   // AI 요약·주요 뉴스 탭
-  const issuesHref = (no?: number) => `/issues${newsRegion === "us" ? "?region=us" : ""}${no ? `#issue-${no}` : ""}`;
+  const newsSort = q.nsort === "recent" ? "recent" : "importance";   // 주요 뉴스 정렬
+  const issuesHref = (no?: number) => {
+    const p = new URLSearchParams();
+    if (newsRegion === "us") p.set("region", "us");
+    if (newsSort === "recent") p.set("sort", "recent");
+    return `/issues${p.size ? `?${p}` : ""}${no ? `#issue-${no}` : ""}`;
+  };
   const newsTabs = (label: string) => (
     <span className="chips chips-s" role="group" aria-label={`${label} 지역`}>
       <Link href={href({ news: undefined })} scroll={false} aria-current={newsRegion === "kr"}>국내</Link>
@@ -36,7 +43,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   };
   let d: Dashboard;
   try {
-    d = await api.dashboard();
+    d = await api.dashboard(newsSort);
   } catch (e) {
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} apiBase={api.apiBase} />;
   }
@@ -224,12 +231,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {/* 4. 주요 뉴스 / 업종 히트맵 */}
         <div className="grid-2b">
           <section className="card pad" aria-label="주요 뉴스">
-            <h2 className="section-title">주요 뉴스 <small>이슈 단위 · 중요도순</small>
+            <h2 className="section-title">주요 뉴스 <small>이슈 단위 · {newsSort === "recent" ? "최신순" : "중요도순"}</small>
               <span className="right" style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {newsTabs("주요 뉴스")}
                 <Link href={issuesHref()}>전체 →</Link>
               </span>
             </h2>
+            <div className="news-tools">
+              <span className="chips chips-s" role="group" aria-label="주요 뉴스 정렬">
+                <Link href={href({ nsort: undefined })} scroll={false} aria-current={newsSort === "importance"}>중요도순</Link>
+                <Link href={href({ nsort: "recent" })} scroll={false} aria-current={newsSort === "recent"}>최신순</Link>
+              </span>
+              <IssueSearch compact keep={{ sort: newsSort === "recent" ? "recent" : undefined }} />
+            </div>
             {topIssues.length === 0 ? <div className="empty">최근 24시간 {newsRegion === "us" ? "미국 시장 " : ""}이슈가 없습니다</div> : (
               <ul className="news-list">
                 {topIssues.map((it) => (
@@ -250,6 +264,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                       {it.tickers.slice(0, 2).map((t) => (
                         <Link key={t.code} className="ticker" href={href({ ticker: t.code })} scroll={false}>{t.name}</Link>
                       ))}
+                      {it.tickers.length > 2 && (
+                        <Link className="ticker ticker-more" href={issuesHref(it.no)}
+                          title={`관련 종목 ${it.tickers.length}개: ${it.tickers.map((t) => t.name).join(", ")}`}
+                          aria-label={`관련 종목 ${it.tickers.length - 2}개 더 보기`}>…</Link>
+                      )}
                     </div>
                   </li>
                 ))}

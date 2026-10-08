@@ -181,13 +181,22 @@ def _collection_status(s: Session) -> dict:
             "scheduler": os.environ.get("ISSUE_STREAM_SCHEDULER") == "1"}
 
 
-def _top_issues(s: Session, region: str, n: int = 6) -> list[Issue]:
+SORTS = {"importance": (desc(Issue.importance), desc(Issue.last_seen)),   # 중요도순
+         "recent": (desc(Issue.last_seen), desc(Issue.importance))}       # 최신순 (마지막 보도 시각)
+
+
+def _top_issues(s: Session, region: str, sort: str = "importance", n: int = 6) -> list[Issue]:
     return list(s.scalars(select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=24), Issue.region == region)
-                          .order_by(desc(Issue.importance)).limit(n)).all())
+                          .order_by(*SORTS.get(sort, SORTS["importance"])).limit(n)).all())
+
+
+def _like(q: str) -> str:
+    """LIKE 패턴용 이스케이프 (%, _ 를 글자 그대로)."""
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @app.get("/dashboard")
-def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_user)):
+def dashboard(sort: str = "importance", s: Session = Depends(db), user: User | None = Depends(optional_user)):
     """마켓 대시보드 한 화면에 필요한 값 전부. 결론(요약)이 위, 근거(표·히트맵)가 아래.
     AI 요약·주요 뉴스·관심종목·히트맵은 국내(kr)와 미국(us)을 따로 내려준다."""
     demo = bool(s.scalar(select(Price.symbol).where(Price.source == "demo").limit(1)) or
@@ -205,8 +214,8 @@ def dashboard(s: Session = Depends(db), user: User | None = Depends(optional_use
         "watchlist": _watchlist(s, user),
         "sectors": _sectors(s, "ETF"),
         "sectors_us": _sectors(s, "US"),
-        "issues": [_issue_card(s, i, with_articles=False) for i in _top_issues(s, "kr")],
-        "issues_us": [_issue_card(s, i, with_articles=False) for i in _top_issues(s, "us")],
+        "issues": [_issue_card(s, i, with_articles=False) for i in _top_issues(s, "kr", sort)],
+        "issues_us": [_issue_card(s, i, with_articles=False) for i in _top_issues(s, "us", sort)],
     }
 
 
@@ -305,18 +314,41 @@ def search_tickers(q: str, limit: int = 20, s: Session = Depends(db),
 
 # ── 이슈 브리핑 ───────────────────────────────────────────────
 @app.get("/issues")
-def list_issues(hours: int = 24, limit: int = 30, ticker: str | None = None, sentiment: str | None = None,
-                region: str | None = None, s: Session = Depends(db)):
-    """region=kr|us 면 그 지역 이슈만 (생략하면 전부)."""
-    q = select(Issue).where(Issue.last_seen >= _now() - timedelta(hours=hours))
+def list_issues(hours: int = 24, ticker: str | None = None, sentiment: str | None = None,
+                region: str | None = None, sort: str = "importance", q: str | None = None, qt: str = "all",
+                page: int = 1, page_size: int = 20, s: Session = Depends(db)):
+    """이슈 목록 (페이지 단위).
+
+    region=kr|us 그 지역만 (생략하면 전부) · sort=importance(중요도순)|recent(최신순)
+    q=검색어, qt=all(종목+기사)|ticker(종목명·코드)|text(기사 제목·요약문) · page 1부터, page_size 최대 50
+    """
+    page_size = max(1, min(page_size, 50))
+    page = max(1, page)
+    cond = [Issue.last_seen >= _now() - timedelta(hours=hours)]
     if region in ("kr", "us"):
-        q = q.where(Issue.region == region)
+        cond.append(Issue.region == region)
     if ticker:
-        q = q.join(IssueTicker).where(IssueTicker.ticker == ticker)
+        cond.append(Issue.id.in_(select(IssueTicker.issue_id).where(IssueTicker.ticker == ticker)))
     if sentiment:
-        q = q.where(Issue.sentiment == sentiment)
-    issues = s.scalars(q.order_by(desc(Issue.importance)).limit(limit)).all()
-    return [_issue_card(s, i) for i in issues]
+        cond.append(Issue.sentiment == sentiment)
+    if q and q.strip():
+        pat = f"%{_like(q.strip())}%"
+        by_ticker = select(IssueTicker.issue_id).join(Ticker, Ticker.code == IssueTicker.ticker).where(or_(
+            Ticker.name.ilike(pat, escape="\\"), Ticker.name_en.ilike(pat, escape="\\"),
+            Ticker.code == q.strip().upper()))
+        by_text = select(IssueArticle.issue_id).join(Article, Article.id == IssueArticle.article_id).where(or_(
+            Article.title.ilike(pat, escape="\\"), Article.snippet.ilike(pat, escape="\\")))
+        if qt == "ticker":
+            cond.append(Issue.id.in_(by_ticker))
+        elif qt == "text":
+            cond.append(Issue.id.in_(by_text))
+        else:
+            cond.append(or_(Issue.id.in_(by_ticker), Issue.id.in_(by_text)))
+    total = s.scalar(select(func.count()).select_from(Issue).where(*cond)) or 0
+    issues = s.scalars(select(Issue).where(*cond).order_by(*SORTS.get(sort, SORTS["importance"]))
+                       .offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [_issue_card(s, i) for i in issues], "total": total, "page": page, "page_size": page_size,
+            "pages": max(1, -(-total // page_size))}
 
 
 @app.get("/issues/{issue_no}")

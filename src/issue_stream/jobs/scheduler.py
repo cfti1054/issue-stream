@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from . import tasks
 
 TZ = "Asia/Seoul"
+MIN_KR_TICKERS = 1000   # 코스피·코스닥은 2,500개 이상. 이보다 적으면 목록 동기화가 안 된 것으로 본다
 log = logging.getLogger(__name__)
 
 
@@ -54,13 +55,13 @@ def bootstrap() -> None:
 
     tasks.sync_watchlist()  # watchlist.yaml 변경 즉시 반영
     with session_scope() as db:
-        n_tickers = db.scalar(select(func.count()).select_from(Ticker))
+        n_tickers = db.scalar(select(func.count()).select_from(Ticker).where(Ticker.quote_code.is_(None)))
         n_us = db.scalar(select(func.count()).select_from(Ticker).where(Ticker.name_en.is_not(None)))
         wl = list(db.scalars(select(Ticker.code).where(Ticker.in_watchlist.is_(True))).all())
         have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_(wl), Price.source != "demo")
                               .distinct()).all())
-    if n_tickers <= len(wl):
-        log.info("첫 실행: 종목 목록 동기화")
+    if n_tickers < MIN_KR_TICKERS:   # 첫 실행이거나 지난 동기화가 실패해 관심종목 정도만 있을 때
+        log.info("국내 종목 목록 %d개 → 동기화 (태깅 사전)", n_tickers)
         tasks.job_sync_tickers()
     elif not n_us:
         log.info("미국 종목 목록 동기화 (종목 검색용)")

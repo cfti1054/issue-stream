@@ -62,7 +62,8 @@ export default function IssueCard({ issue, now }: { issue: Issue; now: number })
       {issue.articles && issue.articles.length > 0 && (
         <details className="evidence">
           <summary>근거 기사 {issue.articles.length}건{cited ? ` (요약에 사용 ${cited}건)` : ""}</summary>
-          <ul className="ev-list">
+          {/* 7건 이상이면 약 6건 높이로 고정하고 목록 안에서 스크롤 */}
+          <ul className={`ev-list ${issue.articles.length >= 7 ? "ev-scroll" : ""}`}>
             {issue.articles.map((a) => (
               <li key={a.no}>
                 <span className="t tnum">{timeKST(a.published_at)}</span>

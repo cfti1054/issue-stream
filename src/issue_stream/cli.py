@@ -14,6 +14,8 @@
   issue-stream scheduler          스케줄러만 실행 (API 를 따로 띄울 때)
   issue-stream api                API 서버만 실행
   issue-stream erd                docs/ERD.md 를 models.py 에서 다시 생성 (--check: 최신인지 검사)
+  issue-stream sync-tickers       종목 목록(국내 코스피·코스닥 + 미국 NASDAQ·NYSE·AMEX) 지금 동기화
+  issue-stream retag --days 7     최근 기사 종목 태그·국내/미국 판정 다시 계산 (목록·태깅 규칙을 바꾼 뒤)
   issue-stream user add <아이디>   로그인 계정 생성 (관리자용). passwd·list·disable·enable·delete
 """
 from __future__ import annotations
@@ -267,6 +269,22 @@ def cmd_user(a):
         sys.exit(str(e))
 
 
+def cmd_sync_tickers(_):
+    from .jobs import tasks
+    migrate()
+    print(f"종목 {tasks.job_sync_tickers()}건 동기화 (실패한 소스는 로그 확인)")
+
+
+def cmd_retag(a):
+    from .db.session import session_scope
+    from .pipeline.run import retag_articles
+    migrate()
+    since = datetime.now(timezone.utc) - timedelta(days=a.days)
+    with session_scope() as db:
+        arts, issues = retag_articles(db, since)
+    print(f"최근 {a.days}일 기사 중 태그·지역이 바뀐 기사 {arts}건, 갱신한 이슈 {issues}건")
+
+
 def cmd_erd(a):
     from . import erd
     if missing := erd.unassigned_tables():
@@ -317,6 +335,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--reload", action="store_true")
     ap.set_defaults(fn=cmd_api)
+    sub.add_parser("sync-tickers", help="종목 목록 동기화").set_defaults(fn=cmd_sync_tickers)
+    rt = sub.add_parser("retag", help="최근 기사 종목 태그 다시 계산")
+    rt.add_argument("--days", type=int, default=7)
+    rt.set_defaults(fn=cmd_retag)
     e = sub.add_parser("erd", help="docs/ERD.md 생성")
     e.add_argument("--check", action="store_true", help="최신이 아니면 실패")
     e.set_defaults(fn=cmd_erd)

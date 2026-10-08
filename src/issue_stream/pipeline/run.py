@@ -17,7 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..collectors import enabled_collectors
-from ..core.config import get_settings
+from ..core.config import get_settings, load_yaml
 from ..db.ops import insert_ignore_returning_id
 from ..db.models import (
     Article, ArticleBody, Issue, IssueArticle, IssueSummaryRow, IssueTicker, Ticker,
@@ -47,7 +47,9 @@ def ticker_keys(codes: list[str]) -> str:
 
 def build_tagger(db: Session) -> TickerTagger:
     """국내 종목은 전부, 미국 종목은 누군가의 관심종목일 때만 (수천 개 이름이 섞이면 오탐이 늘어난다).
-    미국 종목은 한글 이름 외에 3자 이상 티커(NVDA, TSLA)도 찾는다."""
+    미국 종목은 한글 이름 외에 영문 이름·3자 이상 티커(NVDA, TSLA)도 대소문자 무시로 찾는다.
+    국내 종목의 영문 약어(SG, NC)는 대소문자 그대로만. config/tagging.yaml 의 exclude_names 는 제외."""
+    exclude = {str(n) for n in load_yaml("tagging.yaml").get("exclude_names", [])}
     entries = []
     for c, n, a, market, watched, en in db.execute(
             select(Ticker.code, Ticker.name, Ticker.aliases, Ticker.market, Ticker.in_watchlist,
@@ -57,8 +59,41 @@ def build_tagger(db: Session) -> TickerTagger:
                 entries.append(TickerEntry(c, (n, *(a or []), *([en] if en and len(en) >= 3 else []),
                                                *([c] if len(c) >= 3 else []))))
         else:
-            entries.append(TickerEntry(c, (n, *(a or []))))
-    return TickerTagger(entries)
+            entries.append(TickerEntry(c, (n, *(a or [])), ascii_anycase=False))
+    return TickerTagger(entries, exclude=exclude)
+
+
+def retag_articles(db: Session, since: datetime) -> tuple[int, int]:
+    """since 이후 기사의 종목 태그·지역을 현재 종목 목록·규칙으로 다시 계산한다.
+    (종목 목록이 늘었거나 config/tagging.yaml 을 고쳤을 때) → (바뀐 기사 수, 갱신한 이슈 수)
+
+    공시·야후 종목 뉴스처럼 소스가 종목코드를 직접 준 기사는 기존 코드를 유지한다.
+    요약문은 다시 만들지 않는다 (관련 종목·지역·이슈 통계만 갱신, 중요도는 다음 수집 때 재계산).
+    """
+    tagger = build_tagger(db)
+    us_codes = set(db.scalars(select(Ticker.code).where(Ticker.market.in_(US_MARKETS))).all())
+    known = set(db.scalars(select(Ticker.code)).all())
+    changed: list[int] = []
+    for a in db.scalars(select(Article).where(Article.published_at >= since)).all():
+        tags = set(tagger.tag(f"{a.title} {a.snippet or ''}"))
+        if a.kind == "disclosure" or a.source == "yahoo":
+            tags |= {t for t in (a.tickers or []) if t in known}
+        tickers = sorted(tags)
+        region = region_rules.classify(a.title, region_rules.source_region(a.source), tickers, us_codes)
+        if tickers != sorted(a.tickers or []) or region != a.region:
+            a.tickers, a.ticker_keys, a.region = tickers, ticker_keys(tickers), region
+            changed.append(a.id)
+    db.flush()
+    issue_ids = set(db.scalars(select(IssueArticle.issue_id).where(IssueArticle.article_id.in_(changed))).all()) \
+        if changed else set()
+    _refresh_issue_stats(db, issue_ids)
+    for iid in issue_ids:
+        issue = db.get(Issue, iid)
+        regions = db.scalars(select(Article.region).join(IssueArticle, IssueArticle.article_id == Article.id)
+                             .where(IssueArticle.issue_id == iid)).all()
+        issue.region = region_rules.majority(regions)
+    db.flush()
+    return len(changed), len(issue_ids)
 
 
 # ── 1. 수집·적재 ────────────────────────────────────────────────

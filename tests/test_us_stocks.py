@@ -88,3 +88,22 @@ def test_tagger_matches_english_names_case_insensitively():
     assert t.tag("Nvidia and nvda rally; 엔비디아 강세") == {"NVDA": 3}
     assert t.tag("Metal prices rise, metaverse hype") == {}                  # 단어 일부는 제외
     assert t.tag("Meta's AI push, 삼성전자도 상승") == {"META": 1, "005930": 1}
+
+
+def test_korean_ascii_names_are_case_sensitive_and_excluded_names_skipped():
+    from issue_stream.pipeline.tagging import TickerEntry, TickerTagger
+    t = TickerTagger([TickerEntry("160550", ("NEW",), ascii_anycase=False),
+                      TickerEntry("255220", ("SG",), ascii_anycase=False),
+                      TickerEntry("001680", ("대상",), ascii_anycase=False),
+                      TickerEntry("NVDA", ("엔비디아", "NVIDIA"))], exclude={"대상"})
+    assert t.tag("Nvidia unveils new chips") == {"NVDA": 1}                   # new ≠ NEW, 미국 종목은 대소문자 무시
+    assert t.tag("NEW 신작 개봉") == {"160550": 1}
+    assert t.tag("SG증권 매도 폭탄") == {}                                     # 소시에테제네랄 ≠ SG
+    assert t.tag("SG가 상한가, sg 는 아님") == {"255220": 1}
+    assert t.tag("지원 대상 확대") == {}                                       # 제외 목록
+
+
+def test_tagging_yaml_excludes_common_words():
+    from issue_stream.core.config import load_yaml
+    names = set(load_yaml("tagging.yaml")["exclude_names"])
+    assert {"대상", "TP", "NEW"} <= names and "삼성전자" not in names

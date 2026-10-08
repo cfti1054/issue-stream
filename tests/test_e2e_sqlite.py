@@ -61,13 +61,13 @@ def test_dashboard_payload(client, auth):
 
 
 def test_issues_clustered_and_tz_aware(client):
-    issues = client.get("/issues?limit=40").json()
+    issues = client.get("/issues?page_size=50").json()["items"]
     top = issues[0]
     assert top["article_count"] >= 5 and top["has_disclosure"]          # 뉴스+공시가 한 이슈로
     assert sum(top["coverage"]) >= 1 and len(top["coverage"]) == 24
     assert any(a["cited"] for a in top["articles"])
     datetime.fromisoformat(top["last_seen"])                             # 시간대 포함 ISO
-    assert client.get("/issues?ticker=005930").json()[0]["tickers"][0]["code"] == "005930"
+    assert client.get("/issues?ticker=005930").json()["items"][0]["tickers"][0]["code"] == "005930"
 
 
 def test_prices_and_health(client):
@@ -184,7 +184,7 @@ def test_entities_have_internal_id_and_display_no(client, auth):
         db.flush()
         assert u.no == raw.no + 1                                       # ORM INSERT 후에도 no 를 읽어 온다
 
-    card = client.get("/issues?limit=1").json()[0]
+    card = client.get("/issues?page_size=1").json()["items"][0]
     assert "id" not in card and "no" in card["articles"][0]             # 응답에는 화면용 번호만
     assert client.get(f"/issues/{card['no']}").json()["no"] == card["no"]
     assert client.get("/issues/999999").status_code == 404
@@ -266,6 +266,49 @@ def test_us_market_news_is_separated(client):
     assert all(i["region"] == "kr" for i in d["issues"])
     heads = " ".join(i["summary"]["headline"] for i in us)
     assert "나스닥" in heads or "Nasdaq" in heads
-    assert all(i["region"] == "us" for i in client.get("/issues?region=us").json())
-    assert all(i["region"] == "kr" for i in client.get("/issues?region=kr").json())
-    assert len(client.get("/issues").json()) >= len(us) + len(d["issues"])   # 생략하면 전부
+    assert all(i["region"] == "us" for i in client.get("/issues?region=us").json()["items"])
+    assert all(i["region"] == "kr" for i in client.get("/issues?region=kr").json()["items"])
+    assert client.get("/issues").json()["total"] >= len(us) + len(d["issues"])   # 생략하면 전부
+
+
+def test_issue_list_sort_search_and_pages(client):
+    imp = client.get("/issues?page_size=50").json()["items"]
+    assert [i["importance"] for i in imp] == sorted((i["importance"] for i in imp), reverse=True)
+    rec = client.get("/issues?page_size=50&sort=recent").json()["items"]
+    assert [i["last_seen"] for i in rec] == sorted((i["last_seen"] for i in rec), reverse=True)
+
+    p1 = client.get("/issues?page_size=3&page=1").json()
+    p2 = client.get("/issues?page_size=3&page=2").json()
+    assert p1["total"] >= 6 and p1["pages"] == -(-p1["total"] // 3) and len(p1["items"]) == 3
+    assert {i["no"] for i in p1["items"]}.isdisjoint(i["no"] for i in p2["items"])
+    assert client.get("/issues?page_size=3&page=999").json()["items"] == []
+
+    by_name = client.get("/issues?q=삼성전자&qt=ticker").json()["items"]          # 종목명
+    assert by_name and all(any(t["code"] == "005930" for t in i["tickers"]) for i in by_name)
+    assert client.get("/issues?q=005930&qt=ticker").json()["total"] == len(by_name)   # 종목코드
+    by_text = client.get("/issues?q=기준금리&qt=text").json()["items"]            # 기사 내용
+    assert by_text and any("금리" in i["summary"]["headline"] for i in by_text)
+    assert client.get("/issues?q=기준금리&qt=ticker").json()["total"] == 0
+    assert client.get("/issues?q=100%25&qt=text").json()["total"] == 0              # % 는 글자 그대로
+    assert client.get("/dashboard?sort=recent").json()["issues"][0]["last_seen"] >=         client.get("/dashboard").json()["issues"][-1]["last_seen"]
+
+
+def test_retag_applies_current_dictionary(client):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from issue_stream.db.models import Article
+    from issue_stream.db.session import session_scope
+    from issue_stream.pipeline.run import retag_articles
+    with session_scope() as db:
+        a = db.scalar(select(Article).where(Article.title.like("%카카오 공동체%")))
+        a.tickers, a.ticker_keys = [], ""                                      # 예전 사전으로 놓친 상태
+    with session_scope() as db:
+        n_art, _ = retag_articles(db, datetime.now(timezone.utc) - timedelta(days=2))
+    assert n_art >= 1
+    with session_scope() as db:
+        a = db.scalar(select(Article).where(Article.title.like("%카카오 공동체%")))
+        assert a.tickers == ["035720"] and a.ticker_keys == ",035720,"
+    with session_scope() as db:
+        assert retag_articles(db, datetime.now(timezone.utc) - timedelta(days=2))[0] == 0   # 두 번째는 변화 없음

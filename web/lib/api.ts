@@ -104,6 +104,14 @@ export interface IssueCard {
   articles?: IssueArticle[];
 }
 
+export interface IssuePage {
+  items: IssueCard[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
 export interface CollectionStatus {
   first_run: boolean;
   scheduler: boolean;
@@ -208,17 +216,23 @@ async function call<T>(method: string, path: string, body?: unknown, token?: str
 const get = <T,>(path: string) => call<T>("GET", path);
 
 export const api = {
-  dashboard: () => get<Dashboard>("/dashboard"),
+  dashboard: (sort?: "importance" | "recent") => get<Dashboard>(`/dashboard${sort === "recent" ? "?sort=recent" : ""}`),
   prices: (symbol: string, days = 120) =>
     get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}`),
-  issues: (q: { hours?: number; ticker?: string; sentiment?: string; region?: string; limit?: number }) => {
+  issues: (q: {
+    hours?: number; ticker?: string; sentiment?: string; region?: string; sort?: string;
+    q?: string; qt?: string; page?: number; page_size?: number;
+  }) => {
     const p = new URLSearchParams();
+    if (q.sort && q.sort !== "importance") p.set("sort", q.sort);
+    if (q.q) { p.set("q", q.q); if (q.qt && q.qt !== "all") p.set("qt", q.qt); }
+    if (q.page && q.page > 1) p.set("page", String(q.page));
+    if (q.page_size) p.set("page_size", String(q.page_size));
     if (q.region && q.region !== "all") p.set("region", q.region);
     if (q.hours) p.set("hours", String(q.hours));
     if (q.ticker) p.set("ticker", q.ticker);
     if (q.sentiment) p.set("sentiment", q.sentiment);
-    p.set("limit", String(q.limit ?? 30));
-    return get<IssueCard[]>(`/issues?${p}`);
+    return get<IssuePage>(`/issues?${p}`);
   },
   tickers: () => get<{ code: string; name: string }[]>("/tickers"),
   searchTickers: (q: string) => get<TickerHit[]>(`/tickers/search?q=${encodeURIComponent(q)}`),
