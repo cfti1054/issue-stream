@@ -111,11 +111,14 @@ def save_watchlist_prices(n: int, codes: list[str] | None = None, region: str | 
     return total, problems
 
 
-def save_index_strip(n: int) -> tuple[int, list[str]]:
-    from ..collectors.quotes import fetch_chain, index_chain, to_price_rows
+def save_index_strip(n: int, region: str | None = None) -> tuple[int, list[str]]:
+    """지수 스트립 시세. region="us" 면 미국 지수(S&P 500·나스닥·다우)만, "kr" 이면 그 밖(코스피·코스닥·환율)만."""
+    from ..collectors.quotes import US_INDEX_SYMBOLS, fetch_chain, index_chain, to_price_rows
     total, problems = 0, []
     for item in load_yaml("sources.yaml").get("index_strip", []):
         sym = item["symbol"] if isinstance(item, dict) else item
+        if region and (sym in US_INDEX_SYMBOLS) != (region == "us"):
+            continue
         bars, src, errs = fetch_chain(index_chain(item), n + 1)
         if not bars:
             problems.append(f"{sym}: " + " / ".join(errs))
@@ -131,12 +134,16 @@ def save_index_strip(n: int) -> tuple[int, list[str]]:
 SECTOR_GROUPS = (("ETF", "sector_etfs"), ("US", "us_sector_etfs"))
 
 
-def save_sectors() -> tuple[int, list[str]]:
-    """국내·미국 업종 ETF 의 최근 두 거래일 종가로 등락률을 계산해 히트맵 데이터로 저장."""
+def save_sectors(markets: tuple[str, ...] | None = None) -> tuple[int, list[str]]:
+    """국내·미국 업종 ETF 의 최근 두 거래일 종가로 등락률을 계산해 히트맵 데이터로 저장.
+    장중에 부르면 마지막 봉이 당일 현재가라 '전일 종가 대비 장중 등락률'이 된다.
+    markets=("ETF",) 국내만, ("US",) 미국만."""
     from ..collectors.quotes import fetch_chain, stock_chain
     rows, problems = [], []
     cfg = load_yaml("sources.yaml")
     for market, key in SECTOR_GROUPS:
+        if markets and market not in markets:
+            continue
         for e in cfg.get(key, []):
             code = str(e["code"])
             chain = stock_chain(code.split(".")[0], "US", code) if market == "US" else stock_chain(code)
@@ -162,23 +169,25 @@ def _raise_if_nothing(n: int, problems: list[str], what: str) -> int:
 
 @tracked
 def job_intraday_prices() -> int:
-    """장중 5분마다 관심종목·지수 현재가 (네이버는 장중에 당일 행을 실시간으로 갱신)."""
+    """국내 장중 5분마다 국내 관심종목·국내 지수·국내 업종 히트맵 (네이버는 장중에 당일 행을 실시간으로 갱신)."""
     if not is_market_open():
         raise Skip("장 운영 시간 아님")
     n1, p1 = save_watchlist_prices(2, region="kr")
-    n2, p2 = save_index_strip(2)
-    return _raise_if_nothing(n1 + n2, p1 + p2, "장중 시세")
+    n2, p2 = save_index_strip(2, region="kr")
+    n3, p3 = save_sectors(("ETF",))
+    return _raise_if_nothing(n1 + n2 + n3, p1 + p2 + p3, "장중 시세")
 
 
 @tracked
 def job_us_intraday_prices() -> int:
-    """미국 장중 10분마다 미국 관심종목 현재가 (장 마감 확정치는 다음 날 아침 job_backfill_prices)."""
+    """미국 장중 10분마다 미국 관심종목·미국 지수(S&P 500·나스닥)·미국 업종 히트맵.
+    장 마감 확정치는 다음 날 아침 job_backfill_prices."""
     if not is_us_market_open():
         raise Skip("미국 장 운영 시간 아님")
-    n, problems = save_watchlist_prices(2, region="us")
-    if n == 0 and not problems:
-        raise Skip("미국 관심종목 없음")
-    return _raise_if_nothing(n, problems, "미국 장중 시세")
+    n1, p1 = save_watchlist_prices(2, region="us")
+    n2, p2 = save_index_strip(2, region="us")
+    n3, p3 = save_sectors(("US",))
+    return _raise_if_nothing(n1 + n2 + n3, p1 + p2 + p3, "미국 장중 시세")
 
 
 @tracked

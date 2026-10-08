@@ -38,7 +38,7 @@ def test_chains_prefer_keyless_sources():
     assert stock_chain("005930")[0] == "naver:stock:005930"
     assert stock_chain("035720", "KOSDAQ")[1] == "yahoo:035720.KQ"
     assert index_chain({"symbol": "KS11"})[0] == "naver:index:KOSPI"
-    assert index_chain({"symbol": "US500"})[0] == "yahoo:^GSPC"
+    assert index_chain({"symbol": "US500"})[:2] == ["naver:worldindex:.INX", "yahoo:^GSPC"]
     assert index_chain({"symbol": "X", "sources": ["fdr:X"]}) == ["fdr:X"]
 
 

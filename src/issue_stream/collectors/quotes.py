@@ -7,7 +7,8 @@ KRX 정보데이터시스템은 2024-12 부터 로그인이 필요해 pykrx·Fin
   2) 야후 파이낸스 (yfinance)  — 해외 지수, 국내 종목 대체
   3) FinanceDataReader        — 마지막 대체
 
-소스 표기:  "naver:stock:005930", "naver:world:NVDA.O", "naver:index:KOSPI", "naver:fx:FX_USDKRW",
+소스 표기:  "naver:stock:005930", "naver:world:NVDA.O", "naver:index:KOSPI", "naver:worldindex:.INX",
+           "naver:fx:FX_USDKRW",
            "yahoo:^GSPC", "fdr:US500"
 미국 종목은 tickers.code 가 티커(NVDA), tickers.quote_code 가 네이버 조회 코드(NVDA.O, NYSE 는 대개 접미사 없음).
 `issue-stream doctor` 로 PC 에서 각 소스가 실제로 응답하는지 확인할 수 있다.
@@ -127,14 +128,16 @@ def naver(kind: str, code: str, n: int) -> list[Bar]:
         return _naver_paged("/front-api/v1/marketIndex/prices", n, {"category": "exchange", "reutersCode": code})
     if kind == "world":
         return naver_world(code, n)
+    if kind == "worldindex":
+        return naver_world(code, n, "index")
     raise ValueError(kind)
 
 
-def naver_world(quote_code: str, n: int) -> list[Bar]:
-    """미국 등 해외 종목 일봉 (장중에는 당일 봉이 현재가로 갱신된다)."""
+def naver_world(quote_code: str, n: int, kind: str = "item") -> list[Bar]:
+    """미국 등 해외 종목(item)·지수(index, 예: .INX) 일봉. 장중에는 당일 봉이 현재가로 갱신된다."""
     end = date.today() + timedelta(days=1)
     start = date.today() - timedelta(days=int(n * 1.6) + 10)
-    rows = _rows(get_json("naver", f"{NAVER_WORLD}/chart/foreign/item/{quote_code}/day",
+    rows = _rows(get_json("naver", f"{NAVER_WORLD}/chart/foreign/{kind}/{quote_code}/day",
                           params={"startDateTime": start.strftime("%Y%m%d0000"),
                                   "endDateTime": end.strftime("%Y%m%d0000")}, retries=2))
     return _dedupe_sort([b for b in (naver_bar(r) for r in rows) if b])[-n:]
@@ -259,11 +262,15 @@ def stock_chain(code: str, market: str | None = None, quote_code: str | None = N
 INDEX_CHAINS: dict[str, list[str]] = {
     "KS11": ["naver:index:KOSPI", "yahoo:^KS11", "fdr:KS11"],
     "KQ11": ["naver:index:KOSDAQ", "yahoo:^KQ11", "fdr:KQ11"],
-    "US500": ["yahoo:^GSPC", "fdr:US500"],
-    "IXIC": ["yahoo:^IXIC", "fdr:IXIC"],
-    "DJI": ["yahoo:^DJI", "fdr:DJI"],
+    "US500": ["naver:worldindex:.INX", "yahoo:^GSPC", "fdr:US500"],
+    "IXIC": ["naver:worldindex:.IXIC", "yahoo:^IXIC", "fdr:IXIC"],
+    "DJI": ["naver:worldindex:.DJI", "yahoo:^DJI", "fdr:DJI"],
     "USD/KRW": ["naver:fx:FX_USDKRW", "yahoo:KRW=X", "fdr:USD/KRW"],
 }
+
+
+# 미국 장중에 갱신하는 지수 (나머지 지수 스트립 항목은 국내 장중에 갱신)
+US_INDEX_SYMBOLS = {"US500", "IXIC", "DJI"}
 
 
 def index_chain(item: dict | str) -> list[str]:

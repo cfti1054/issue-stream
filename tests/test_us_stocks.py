@@ -107,3 +107,35 @@ def test_tagging_yaml_excludes_common_words():
     from issue_stream.core.config import load_yaml
     names = set(load_yaml("tagging.yaml")["exclude_names"])
     assert {"대상", "TP", "NEW"} <= names and "삼성전자" not in names
+
+
+def test_us_indices_use_naver_world_index_first():
+    assert quotes.index_chain({"symbol": "US500"})[0] == "naver:worldindex:.INX"
+    assert quotes.index_chain({"symbol": "IXIC"})[0] == "naver:worldindex:.IXIC"
+    assert quotes.index_chain({"symbol": "KS11"})[0] == "naver:index:KOSPI"
+
+
+def test_intraday_jobs_refresh_their_own_market(monkeypatch):
+    """국내 장중: 국내 지수·국내 업종 / 미국 장중: 미국 지수·미국 업종 (서로 섞지 않는다)."""
+    from issue_stream.jobs import tasks
+    calls = []
+    monkeypatch.setattr(tasks, "_save_rows", lambda model, rows, keys: None)
+
+    def fake_chain(chain, n, *a, **k):
+        calls.append(chain[0])
+        return [{"day": date(2026, 10, 7), "close": 100.0, "open": None, "high": None, "low": None, "volume": None},
+                {"day": date(2026, 10, 8), "close": 101.0, "open": None, "high": None, "low": None, "volume": None}
+                ], chain[0], []
+    monkeypatch.setattr(quotes, "fetch_chain", fake_chain)
+
+    tasks.save_index_strip(2, region="us")
+    assert calls and all(c.startswith("naver:worldindex:") for c in calls)
+    calls.clear()
+    tasks.save_index_strip(2, region="kr")
+    assert calls and not any("worldindex" in c for c in calls)
+    calls.clear()
+    n, _ = tasks.save_sectors(("US",))
+    assert n >= 10 and all(c.startswith("naver:world:") for c in calls)
+    calls.clear()
+    n, _ = tasks.save_sectors(("ETF",))
+    assert n >= 10 and all(c.startswith("naver:stock:") for c in calls)
