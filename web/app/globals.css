@@ -448,3 +448,7 @@ a.pg-btn:hover { text-decoration: none; background: var(--surface-2); }
   .sg-divider h2 { grid-column: 1; }
   .sg-empty { padding-left: 0; }
 }
+
+/* 이슈 1건 보기 (/issues?no=): 근거 기사를 스크롤 상자 없이 모두 */
+.issue-single { max-width: 880px; }
+.issue-single .ev-scroll { max-height: none; overflow: visible; }

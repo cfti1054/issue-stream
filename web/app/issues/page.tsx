@@ -1,6 +1,6 @@
 // 이슈 브리핑: 뉴스·공시를 이슈 단위로 묶어 요약. 카드 1장 = 이슈 1개.
 import Link from "next/link";
-import { ApiError, api, type IssuePage } from "@/lib/api";
+import { ApiError, api, type IssueCard as Issue, type IssuePage } from "@/lib/api";
 import IssueCard from "@/components/IssueCard";
 import IssueSearch from "@/components/IssueSearch";
 import Pagination from "@/components/Pagination";
@@ -10,6 +10,7 @@ import { TickerSelect } from "@/components/chrome";
 export const dynamic = "force-dynamic";
 
 type Q = {
+  no?: string;   // 이슈 번호: 그 이슈 1건만 보기 (대시보드·시그널에서 이슈를 눌렀을 때)
   hours?: string; ticker?: string; sentiment?: string; region?: string;
   sort?: string; q?: string; qt?: string; page?: string;
 };
@@ -31,6 +32,7 @@ function href(q: Q, patch: Partial<Q>): string {
 
 export default async function IssuesPage({ searchParams }: { searchParams: Promise<Q> }) {
   const q = await searchParams;
+  if (q.no && Number(q.no) > 0) return <SingleIssue no={Number(q.no)} />;
   const hours = Number(q.hours ?? 24);
   const sort = q.sort === "recent" ? "recent" : "importance";
   const page = Math.max(1, Number(q.page ?? 1) || 1);
@@ -117,6 +119,39 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
       )}
 
       <Pagination page={res.page} pages={res.pages} href={(n) => href(q, { page: n === 1 ? undefined : String(n) })} />
+    </>
+  );
+}
+
+/** 이슈 1건만: 요약과 근거 기사(펼친 상태)만 보여 주고 다른 이슈는 숨긴다 */
+async function SingleIssue({ no }: { no: number }) {
+  let issue: Issue;
+  try {
+    issue = await api.issue(no);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      return (
+        <>
+          <div className="page-head"><h1>이슈 브리핑</h1></div>
+          <div className="card empty">이슈 #{no} 를 찾을 수 없습니다. 오래되어 정리됐을 수 있습니다.{" "}
+            <Link href="/issues">이슈 브리핑 전체 보기 →</Link></div>
+        </>
+      );
+    }
+    return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} apiBase={api.apiBase} />;
+  }
+  return (
+    <>
+      <div className="page-head">
+        <h1>이슈 브리핑</h1>
+        <p>이슈 #{no} 와 관련 기사만 보는 중</p>
+      </div>
+      <div className="filters">
+        <Link className="btn btn-s" href={issue.region === "us" ? "/issues?region=us" : "/issues"}>← 이슈 브리핑 전체 보기</Link>
+      </div>
+      <div className="issue-single">
+        <IssueCard issue={issue} now={Date.now()} open />
+      </div>
     </>
   );
 }

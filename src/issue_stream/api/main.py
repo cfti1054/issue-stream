@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -29,7 +30,9 @@ from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..core.config import get_settings, load_yaml
-from ..core.market_calendar import is_market_open, is_us_market, is_us_market_open
+from ..core.market_calendar import (
+    is_market_open, is_trading_day, is_us_market, is_us_market_open, previous_trading_day,
+)
 from ..db.models import (
     ApiUsage, Article, Issue, IssueArticle, IssueSummaryRow, IssueTicker, JobRun, MacroSeries, Price,
     SectorIndex, Ticker, User, UserWatchlist,
@@ -227,6 +230,14 @@ def dashboard(sort: str = "importance", s: Session = Depends(db), user: User | N
 def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
     t = s.get(Ticker, symbol)
     rows = _series(s, symbol, days)
+    if t is not None and _needs_fetch(t, rows, days):
+        # 관심종목이 아닌 종목도 차트를 열면 바로 보이도록 그 자리에서 받아 저장한다 (네이버 1~3회 요청)
+        from ..jobs.tasks import save_watchlist_prices
+        n = BACKFILL_DAYS if len(rows) < min(days, MIN_CHART_ROWS) else 5
+        _fetched_at[symbol] = time.monotonic()
+        save_watchlist_prices(n, [symbol])
+        s.expire_all()
+        rows = _series(s, symbol, days)
     return {"symbol": symbol, "name": t.name if t else symbol, "market": t.market if t else None,
             "is_stock": t is not None,   # 지수·환율은 종목 마스터에 없다
             "points": [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
@@ -250,6 +261,44 @@ def fx_rates(s: Session = Depends(db)):
                     "spark": closes[-30:]})
     last = s.scalar(select(func.max(JobRun.finished_at)).where(JobRun.job == "job_fx_rates", JobRun.status == "ok"))
     return {"updated_at": last, "items": out}
+
+
+BACKFILL_DAYS = 130   # 처음 여는 종목의 과거 시세 (차트 '전체' 범위)
+MIN_CHART_ROWS = 20
+
+
+REFETCH_SECONDS = 60   # 같은 종목은 1분에 한 번만 다시 받는다 (장중 새로고침마다 요청하지 않게)
+_fetched_at: dict[str, float] = {}
+
+
+def _needs_fetch(t: Ticker, rows: list[Price], days: int) -> bool:
+    """저장된 시세가 차트를 그리기에 모자라거나, 수집 대상이 아닌 종목의 시세가 낡았으면 True.
+    관심종목은 스케줄러가 갱신하므로 비어 있을 때만 받는다."""
+    if time.monotonic() - _fetched_at.get(t.code, -REFETCH_SECONDS) < REFETCH_SECONDS:
+        return False
+    if len(rows) < min(days, MIN_CHART_ROWS):
+        return True
+    if t.in_watchlist:
+        return False
+    us = is_us_market(t.market)
+    live = is_us_market_open() if us else is_market_open()
+    return live or rows[-1].day < _last_session(us)   # 장중이면 현재가, 아니면 빠진 거래일 보충
+
+
+def _last_session(us: bool) -> date:
+    """가장 최근에 열린(또는 오늘 열린) 거래일. 국내는 KRX 휴장일 달력, 미국은 뉴욕 시간 평일 기준."""
+    if us:
+        from zoneinfo import ZoneInfo
+        d = datetime.now(ZoneInfo("America/New_York"))
+        day = d.date() if d.weekday() < 5 and (d.hour, d.minute) >= (9, 30) else None
+        cur = d.date()
+        while day is None:
+            cur -= timedelta(days=1)
+            day = cur if cur.weekday() < 5 else None
+        return day
+    now = datetime.now(timezone(timedelta(hours=9)))
+    today = now.date()
+    return today if is_trading_day(today) and now.hour >= 9 else previous_trading_day(today)
 
 
 @app.get("/me/watchlist")

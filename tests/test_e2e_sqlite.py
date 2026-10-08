@@ -325,3 +325,33 @@ def test_signals(client, auth):
     m = client.get("/signals?region=kr&hours=72", headers=auth).json()
     assert any(x["main"]["code"] == "005930" for x in m["mine"])     # 관심종목 이슈는 mine 으로
     assert all(x["main"]["code"] != "005930" for x in m["items"])
+
+
+def test_chart_fetches_prices_for_any_ticker(client, monkeypatch):
+    """관심종목이 아닌 종목도 차트를 열면 그 자리에서 시세를 받아 보여 준다 (두 번째부터는 저장분)."""
+    from datetime import date, timedelta
+
+    from issue_stream.collectors import quotes
+    calls = []
+
+    def fake_chain(chain, n, *a, **k):
+        calls.append((chain[0], n))
+        days = [date.today() - timedelta(days=i) for i in range(n)][::-1]
+        return [{"day": d, "open": None, "high": None, "low": None, "close": 100.0 + i, "volume": None}
+                for i, d in enumerate(days)], chain[0], []
+    monkeypatch.setattr(quotes, "fetch_chain", fake_chain)
+    monkeypatch.setattr("issue_stream.api.main.is_market_open", lambda: False)
+    monkeypatch.setattr("issue_stream.api.main.is_us_market_open", lambda: False)
+
+    p = client.get("/market/prices/035720?days=120").json()            # 카카오: 수집 대상 아님
+    assert len(p["points"]) == 120 and calls and calls[0][1] == 131    # 과거 130일을 한 번에
+    n = len(calls)
+    assert len(client.get("/market/prices/035720?days=120").json()["points"]) == 120
+    assert len(calls) == n                                               # 저장분이 충분하면 다시 받지 않음
+
+
+def test_single_issue(client):
+    no = client.get("/issues?page_size=1").json()["items"][0]["no"]
+    one = client.get(f"/issues/{no}").json()
+    assert one["no"] == no and one["articles"]
+    assert client.get("/issues/999999").status_code == 404

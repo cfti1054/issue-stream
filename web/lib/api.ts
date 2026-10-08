@@ -275,6 +275,7 @@ export const api = {
   prices: (symbol: string, days = 120) =>
     get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}`),
   fx: () => get<FxBoard>("/market/fx"),
+  issue: (no: number) => get<IssueCard>(`/issues/${no}`),
   signals: (region: "kr" | "us", hours: number) => get<SignalBoard>(`/signals?region=${region}&hours=${hours}`),
   issues: (q: {
     hours?: number; ticker?: string; sentiment?: string; region?: string; sort?: string;

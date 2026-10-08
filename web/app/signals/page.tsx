@@ -46,7 +46,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} apiBase={api.apiBase} />;
   }
   const now = Date.now();
-  const issueHref = (no: number) => `/issues?region=${region}#issue-${no}`;
+  const issueHref = (no: number) => `/issues?no=${no}`;
 
   const row = (s: SignalRow) => (
     <div className="sg-row" key={s.issue_no}>

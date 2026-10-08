@@ -4,7 +4,7 @@ import type { IssueCard as Issue } from "@/lib/api";
 import { SENTI_LABEL, ago, timeKST } from "@/lib/format";
 import { CoverageBars } from "./charts";
 
-export default function IssueCard({ issue, now }: { issue: Issue; now: number }) {
+export default function IssueCard({ issue, now, open = false }: { issue: Issue; now: number; open?: boolean }) {
   const s = issue.summary;
   const hot = issue.importance >= 60;
   const cited = issue.articles?.filter((a) => a.cited).length ?? 0;
@@ -60,7 +60,7 @@ export default function IssueCard({ issue, now }: { issue: Issue; now: number })
       </div>
 
       {issue.articles && issue.articles.length > 0 && (
-        <details className="evidence">
+        <details className="evidence" open={open}>
           <summary>근거 기사 {issue.articles.length}건{cited ? ` (요약에 사용 ${cited}건)` : ""}</summary>
           {/* 7건 이상이면 약 6건 높이로 고정하고 목록 안에서 스크롤 */}
           <ul className={`ev-list ${issue.articles.length >= 7 ? "ev-scroll" : ""}`}>

@@ -27,7 +27,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const p = new URLSearchParams();
     if (newsRegion === "us") p.set("region", "us");
     if (newsSort === "recent") p.set("sort", "recent");
-    return `/issues${p.size ? `?${p}` : ""}${no ? `#issue-${no}` : ""}`;
+    if (no) return `/issues?no=${no}`;   // 그 이슈 1건만
+    return `/issues${p.size ? `?${p}` : ""}`;
   };
   const newsTabs = (label: string) => (
     <span className="chips chips-s" role="group" aria-label={`${label} 지역`}>
@@ -184,7 +185,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                           <HoldToggle code={w.code} holding={w.holding} />
                         </div>
                         {w.top_issue && (
-                          <Link className="issue-link" href={`/issues?ticker=${w.code}&region=all#issue-${w.top_issue.no}`}
+                          <Link className="issue-link" href={`/issues?no=${w.top_issue.no}`}
                             title={w.top_issue.headline}>↳ {w.top_issue.headline}</Link>
                         )}
                       </td>
@@ -222,7 +223,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <span className="muted num-s">{selected.day}</span>
                 </div>
                 {series.points.length > 0 ? <PriceChart points={series.points} isIndex={isUS(selected.market)} />
-                  : <div className="empty">시세를 모으는 중입니다. 관심종목에 등록하면 과거 시세를 바로 채웁니다.</div>}
+                  : <div className="empty">시세를 불러오지 못했습니다. 시세 소스가 응답하지 않거나 거래되지 않는 종목입니다.</div>}
               </>
             ) : <div className="empty">{d.user ? "관심종목을 추가하면 가격 차트가 표시됩니다" : "뉴스의 종목 태그를 누르면 가격 차트가 표시됩니다"}</div>}
           </section>
