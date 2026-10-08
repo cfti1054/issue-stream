@@ -6,6 +6,7 @@ import IssueSearch from "@/components/IssueSearch";
 import Pagination from "@/components/Pagination";
 import ErrorBox from "@/components/ErrorBox";
 import { TickerSelect } from "@/components/chrome";
+import { tickerHref } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ type Q = {
 };
 
 const PAGE_SIZE = 20;
-const REGIONS = [["kr", "국내"], ["us", "미국"], ["all", "전체"]] as const;
+const REGIONS = [["kr", "국내"], ["us", "미국"], ["co", "코인"], ["all", "전체"]] as const;
 const HOURS = [["6", "6시간"], ["24", "24시간"], ["48", "48시간"], ["168", "7일"]] as const;
 const SENTIS = [["", "전체"], ["positive", "긍정"], ["neutral", "중립"], ["negative", "부정"]] as const;
 const SORTS = [["importance", "중요도순"], ["recent", "최신순"]] as const;
@@ -38,7 +39,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   const page = Math.max(1, Number(q.page ?? 1) || 1);
   const query = q.q?.trim() || undefined;
   // 지역: 기본 국내. 종목 필터·검색으로 들어오면 어느 지역이든 보이도록 전체
-  const region = q.region === "us" || q.region === "all" || q.region === "kr" ? q.region
+  const region = REGIONS.some(([v]) => v === q.region) ? q.region!
     : q.ticker || query ? "all" : "kr";
   let res: IssuePage;
   let tickers: { code: string; name: string }[];
@@ -62,7 +63,8 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
     <>
       <div className="page-head">
         <h1>이슈 브리핑</h1>
-        <p>같은 사건을 다룬 기사·공시를 하나로 묶어 요약합니다{region === "us" ? " · 미국 시장 (한국어 보도 + 영어 원문)" : ""}</p>
+        <p>같은 사건을 다룬 기사·공시를 하나로 묶어 요약합니다{region === "us" ? " · 미국 시장 (한국어 보도 + 영어 원문)"
+          : region === "co" ? " · 코인 시장 (한국어 보도 + 영어 원문)" : ""}</p>
       </div>
 
       <div className="filters">
@@ -90,7 +92,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
           ))}
         </div>
         <TickerSelect tickers={tickers} value={q.ticker} baseQuery={base} />
-        {q.ticker && <Link className="ticker" href={`/?ticker=${q.ticker}`}>{tickerName} 시세 보기 →</Link>}
+        {q.ticker && <Link className="ticker" href={tickerHref(q.ticker)}>{tickerName} 시세 보기 →</Link>}
       </div>
 
       <div className="filters">
@@ -147,7 +149,7 @@ async function SingleIssue({ no }: { no: number }) {
         <p>이슈 #{no} 와 관련 기사만 보는 중</p>
       </div>
       <div className="filters">
-        <Link className="btn btn-s" href={issue.region === "us" ? "/issues?region=us" : "/issues"}>← 이슈 브리핑 전체 보기</Link>
+        <Link className="btn btn-s" href={issue.region === "kr" ? "/issues" : `/issues?region=${issue.region}`}>← 이슈 브리핑 전체 보기</Link>
       </div>
       <div className="issue-single">
         <IssueCard issue={issue} now={Date.now()} open scrollAt={10} />

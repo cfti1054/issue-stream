@@ -257,7 +257,8 @@ def save_signal_prices() -> tuple[int, list[str]]:
         top = select(Issue.id).where(Issue.last_seen >= since).order_by(Issue.importance.desc()).limit(SIGNAL_ISSUES)
         rows = db.execute(select(Ticker.code, Ticker.market, Ticker.quote_code)
                           .join(IssueTicker, IssueTicker.ticker == Ticker.code)
-                          .where(IssueTicker.issue_id.in_(top), Ticker.in_watchlist.is_(False))
+                          .where(IssueTicker.issue_id.in_(top), Ticker.in_watchlist.is_(False),
+                                 Ticker.market.is_distinct_from(COIN_MARKET))   # 코인은 job_coin_prices
                           .distinct()).all()
         have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_([r[0] for r in rows]),
                                                          Price.day >= fresh).distinct()).all())
@@ -310,6 +311,20 @@ def job_macro() -> int:
 
 
 # ── 마스터 데이터 ──────────────────────────────────────────────
+COIN_MARKET = "COIN"
+
+
+def sync_coins() -> int:
+    """sources.yaml coins 를 종목 목록에 COIN:BTC (시장 COIN) 로 넣는다. 뉴스 태깅·이슈 종목·시그널에 쓰인다.
+    시세는 job_coin_prices 가 따로 받으므로 관심종목(수집 대상)으로는 쓰지 않는다."""
+    coins = load_yaml("sources.yaml").get("coins", [])
+    with session_scope() as db:
+        for c in coins:
+            upsert(db, Ticker, dict(code=f"COIN:{c['code']}", name=c["name"], aliases=list(c.get("aliases", [])),
+                                    market=COIN_MARKET), ["code"], ["name", "aliases", "market"])
+    return len(coins)
+
+
 def sync_watchlist() -> int:
     """tickers 의 수집 대상(in_watchlist)·보유(holding) 표시를 다시 계산한다 (빠름, 네트워크 불필요).
 

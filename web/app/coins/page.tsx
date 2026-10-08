@@ -1,8 +1,8 @@
 // 코인: ① 시장 요약(시가총액·BTC 점유율·공포탐욕·김치 프리미엄) → ② 주요 코인 카드 →
-// ③ 선택 코인 차트(원화 | 달러) · ④ 김치 프리미엄 표 → ⑤ 업비트 원화 시장 순위(거래대금·상승·하락)
+// ③ 선택 코인 차트(원화 | 달러) · ④ 김치 프리미엄 표 → ⑤ 업비트 원화 시장 순위(거래대금·상승·하락) · ⑥ 코인 뉴스 이슈
 import Link from "next/link";
-import { ApiError, api, type CoinBoard, type CoinRank, type PriceSeries } from "@/lib/api";
-import { dateKST, dir, num, pct, signed, timeKST } from "@/lib/format";
+import { ApiError, api, type CoinBoard, type CoinRank, type IssueCard, type PriceSeries } from "@/lib/api";
+import { SENTI_LABEL, ago, dateKST, dir, num, pct, signed, tickerHref, timeKST } from "@/lib/format";
 import { Sparkline } from "@/components/charts";
 import PriceChart from "@/components/PriceChart";
 import ErrorBox from "@/components/ErrorBox";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 type Q = { c?: string; usd?: string; rk?: string };
 const RANKS = [["value", "거래대금"], ["up", "상승률"], ["down", "하락률"]] as const;
+const ISSUE_COUNT = 6;
 
 /** 코인 원화가: 100원 이상은 정수, 그 아래는 업비트 호가 단위에 맞춰 소수 */
 const wonDigits = (v: number) => (v >= 100 ? 0 : v >= 1 ? 2 : 4);
@@ -40,8 +41,14 @@ export default async function CoinsPage({ searchParams }: { searchParams: Promis
     return p.size ? `/coins?${p}` : "/coins";
   };
   let d: CoinBoard;
+  let issues: IssueCard[] = [];
   try {
-    d = await api.coins();
+    const [board, page] = await Promise.all([
+      api.coins(),
+      api.issues({ region: "co", hours: 24, page_size: ISSUE_COUNT }).catch(() => null),
+    ]);
+    d = board;
+    issues = page?.items ?? [];
   } catch (e) {
     return <ErrorBox message={e instanceof ApiError ? e.message : String(e)} apiBase={api.apiBase} />;
   }
@@ -60,6 +67,7 @@ export default async function CoinsPage({ searchParams }: { searchParams: Promis
   const fg = s.fear_greed;
   const rows: CoinRank[] = d.ranking[rk];
   const maxPrem = Math.max(1, ...d.premium.map((p) => Math.abs(p.premium_pct)));
+  const now = Date.now();
 
   return (
     <>
@@ -179,6 +187,7 @@ export default async function CoinsPage({ searchParams }: { searchParams: Promis
           </section>
         </div>
 
+        <div className="grid-2b">
         {/* ⑤ 업비트 순위 */}
         <section className="card pad" aria-label="업비트 원화 시장 순위">
           <h2 className="section-title">업비트 원화 시장 순위
@@ -206,6 +215,41 @@ export default async function CoinsPage({ searchParams }: { searchParams: Promis
             </table>
           </div>
         </section>
+
+        {/* ⑥ 코인 뉴스 이슈 (이슈 브리핑의 '코인' 이슈) */}
+        <section className="card pad" aria-label="코인 뉴스 이슈">
+          <h2 className="section-title">코인 뉴스 이슈 <small>최근 24시간 · 중요도순</small>
+            <span className="right"><Link href="/issues?region=co">전체 →</Link></span>
+          </h2>
+          {issues.length === 0 ? <div className="empty">최근 24시간 코인 이슈가 없습니다</div> : (
+            <ul className="news-list">
+              {issues.map((it) => (
+                <li key={it.no}>
+                  <span className={`score tnum ${it.importance >= 60 ? "hot" : ""}`} title="중요도">
+                    {Math.round(it.importance)}
+                  </span>
+                  <div>
+                    <Link className="headline" href={`/issues?no=${it.no}`}>{it.summary?.headline ?? "요약 대기"}</Link>
+                    <div className="meta">
+                      <span className={`senti senti-${it.sentiment}`}>{SENTI_LABEL[it.sentiment]}</span>
+                      <span>{it.sources[0]?.publisher} 외 {Math.max(0, it.publisher_count - 1)}곳</span>
+                      <span>기사 {it.article_count}건</span>
+                      <span>{ago(it.last_seen, now)}</span>
+                    </div>
+                  </div>
+                  <div className="tickers">
+                    {it.tickers.slice(0, 2).map((t) => (
+                      <Link key={t.code} className="ticker" href={tickerHref(t.code)} scroll={false}>
+                        {t.name}
+                      </Link>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        </div>
       </div>
     </>
   );

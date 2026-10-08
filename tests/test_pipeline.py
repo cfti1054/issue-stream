@@ -137,3 +137,16 @@ def test_summaries_carry_signal_fields():
            '"keywords":["이건 열두 글자를 훨씬 넘는 너무 긴 키워드"],"reason":"HBM 판매 확대로"}')
     p = _parse(raw, "ollama:test", arts)
     assert p.category == "실적" and p.keywords and p.reason == "HBM 판매 확대로"
+
+
+def test_region_coin_rules():
+    from issue_stream.pipeline import region as r
+    us = {"NVDA"}
+    assert r.classify("비트코인 1억 1천만원 회복", None, [], us) == "co"            # 코인 단어, 주식 종목 없음
+    assert r.classify("리플 소송 종결", None, ["COIN:XRP"], us) == "co"              # 코인만 태깅
+    assert r.classify("Bitcoin ETF inflows", "co", [], us) == "co"                    # 코인 검색 결과
+    assert r.classify("Bitcoin rallies past $90k", None, [], us) == "co"              # 영어여도 코인 단어
+    assert r.classify("비트코인 급등에 우리기술투자 상승", None, ["COIN:BTC", "041190"], us) == "kr"  # 주식 기사
+    assert r.majority(["co", "co", "kr"]) == "co"
+    assert r.majority(["co", "kr"]) == "kr" and r.majority(["us", "co"]) == "us"     # 동수면 국내 → 미국 → 코인
+    assert r.source_region("google:co") == "co" and r.source_region("google:co-en") == "co"

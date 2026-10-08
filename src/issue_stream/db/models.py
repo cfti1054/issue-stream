@@ -90,7 +90,7 @@ class Article(Base):
     embedding_model: Mapped[str | None] = mapped_column(String(100))
     sentiment: Mapped[str | None] = mapped_column(String(10))
     region: Mapped[str] = mapped_column(String(2), default="kr", server_default="kr",
-                                        comment="kr 국내 / us 미국 시장 (pipeline/region.py)")
+                                        comment="kr 국내 / us 미국 / co 코인 시장 (pipeline/region.py)")
 
 
 class ArticleBody(Base):
@@ -118,7 +118,7 @@ class Issue(Base):
     alerted: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(10), default="active")          # active | closed
     region: Mapped[str] = mapped_column(String(2), default="kr", server_default="kr", index=True,
-                                        comment="kr 국내 / us 미국 (기사 지역 다수결)")
+                                        comment="kr 국내 / us 미국 / co 코인 (기사 지역 다수결)")
 
     articles: Mapped[list[IssueArticle]] = relationship(back_populates="issue", cascade="all, delete-orphan")
     tickers: Mapped[list[IssueTicker]] = relationship(back_populates="issue", cascade="all, delete-orphan")

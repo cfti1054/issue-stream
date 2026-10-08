@@ -306,7 +306,7 @@ erDiagram
 | `embedding` | bytea |  | Y |  |  |  |
 | `embedding_model` | varchar(100) |  | Y |  |  |  |
 | `sentiment` | varchar(10) |  | Y |  |  |  |
-| `region` | varchar(2) |  |  | 'kr' |  | kr 국내 / us 미국 시장 (pipeline/region.py) |
+| `region` | varchar(2) |  |  | 'kr' |  | kr 국내 / us 미국 / co 코인 시장 (pipeline/region.py) |
 
 제약·인덱스: UNIQUE (source, external_id) · INDEX (published_at) · INDEX (simhash) · INDEX (source)
 
@@ -341,7 +341,7 @@ erDiagram
 | `summarized_article_count` | integer |  |  | 0 |  |  |
 | `alerted` | boolean |  |  | False |  |  |
 | `status` | varchar(10) |  |  | 'active' |  |  |
-| `region` | varchar(2) |  |  | 'kr' |  | kr 국내 / us 미국 (기사 지역 다수결) |
+| `region` | varchar(2) |  |  | 'kr' |  | kr 국내 / us 미국 / co 코인 (기사 지역 다수결) |
 
 제약·인덱스: INDEX (first_seen) · INDEX (importance) · INDEX (last_seen) · INDEX (region)
 

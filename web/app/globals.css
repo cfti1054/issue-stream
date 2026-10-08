@@ -481,3 +481,4 @@ a.pg-btn:hover { text-decoration: none; background: var(--surface-2); }
 .cn-bar { display: inline-block; height: 6px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
 .cn-bar.up { background: var(--up-mark); }
 .cn-bar.down { background: var(--down-mark); }
+.sg-mini.long { font-size: 8.5px; letter-spacing: -0.02em; }

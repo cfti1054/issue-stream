@@ -233,7 +233,7 @@ def prices(symbol: str, days: int = 120, krw: bool = False, usd: bool = False, s
     usd=true 면 원화 표시 코인(COIN:BTC)을 그날 원/달러로 나눠 달러로 돌려준다."""
     t = s.get(Ticker, symbol)
     rows = _series(s, symbol, days)
-    if t is not None and _needs_fetch(t, rows, days):
+    if t is not None and t.market != "COIN" and _needs_fetch(t, rows, days):
         # 관심종목이 아닌 종목도 차트를 열면 바로 보이도록 그 자리에서 받아 저장한다 (네이버 1~3회 요청)
         from ..jobs.tasks import save_watchlist_prices
         n = BACKFILL_DAYS if len(rows) < min(days, MIN_CHART_ROWS) else 5
@@ -460,6 +460,8 @@ def add_watch(code: str, bg: BackgroundTasks, body: WatchIn | None = None, s: Se
     t = s.get(Ticker, code)
     if t is None:
         raise HTTPException(404, f"종목 {code} 을(를) 찾을 수 없습니다")
+    if t.market == "COIN":
+        raise HTTPException(400, "코인은 관심종목에 등록할 수 없습니다. 코인 탭에서 확인하세요")
     row = s.get(UserWatchlist, (user.id, code))
     if row is None:
         limit = get_settings().max_watchlist_per_user
@@ -517,7 +519,8 @@ def search_tickers(q: str, limit: int = 20, s: Session = Depends(db),
         return []
     like = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     rows = s.execute(select(Ticker.code, Ticker.name, Ticker.market).where(or_(
-        Ticker.name.ilike(f"%{like}%", escape="\\"), Ticker.code.like(f"{like}%", escape="\\")))
+        Ticker.name.ilike(f"%{like}%", escape="\\"), Ticker.code.like(f"{like}%", escape="\\")),
+        Ticker.market.is_distinct_from("COIN"))   # 코인은 관심종목 대상이 아니다 (코인 탭에서 본다)
         .order_by(Ticker.name.ilike(f"{like}%", escape="\\").desc(), func.length(Ticker.name), Ticker.name)
         .limit(min(limit, 50))).all()
     mine = set()
@@ -533,13 +536,13 @@ def list_issues(hours: int = 24, ticker: str | None = None, sentiment: str | Non
                 page: int = 1, page_size: int = 20, s: Session = Depends(db)):
     """이슈 목록 (페이지 단위).
 
-    region=kr|us 그 지역만 (생략하면 전부) · sort=importance(중요도순)|recent(최신순)
+    region=kr|us|co 그 지역만 (co 코인, 생략하면 전부) · sort=importance(중요도순)|recent(최신순)
     q=검색어, qt=all(종목+기사)|ticker(종목명·코드)|text(기사 제목·요약문) · page 1부터, page_size 최대 50
     """
     page_size = max(1, min(page_size, 50))
     page = max(1, page)
     cond = [Issue.last_seen >= _now() - timedelta(hours=hours)]
-    if region in ("kr", "us"):
+    if region in ("kr", "us", "co"):
         cond.append(Issue.region == region)
     if ticker:
         cond.append(Issue.id.in_(select(IssueTicker.issue_id).where(IssueTicker.ticker == ticker)))
@@ -631,7 +634,7 @@ def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
 
 # ── 시그널 ───────────────────────────────────────────────────
 # 대표 종목이 없는 이슈(금리·환율 등)는 시장 지수를 대표로 보여 준다
-MARKET_PROXY = {"kr": ("KS11", "코스피"), "us": ("US500", "S&P 500")}
+MARKET_PROXY = {"kr": ("KS11", "코스피"), "us": ("US500", "S&P 500"), "co": ("COIN:BTC", "비트코인")}
 
 
 def _quote(s: Session, symbol: str) -> dict:
@@ -645,7 +648,7 @@ def signals(region: str = "kr", hours: int = 6, limit: int = 12, s: Session = De
             user: User | None = Depends(optional_user)):
     """시그널 맵. 이슈 1건 = 1줄: 주제·키워드·출처 → 대표 종목(이유·등락률) → 함께 언급된 종목.
     로그인하면 관심종목이 나온 이슈는 mine 으로 따로 내려준다 (items 에서는 뺀다)."""
-    region = "us" if region == "us" else "kr"
+    region = region if region in ("us", "co") else "kr"
     hours = max(1, min(hours, 72))
     limit = max(1, min(limit, 30))
     mine_codes = set(s.scalars(select(UserWatchlist.ticker).where(UserWatchlist.user_id == user.id)).all())         if user else set()
@@ -689,7 +692,7 @@ def _signal_row(s: Session, i: Issue, region: str) -> dict:
         "issue_no": i.no, "importance": i.importance, "sentiment": i.sentiment or "neutral",
         "last_seen": i.last_seen, "headline": headline,
         # 예전 요약(필드 추가 전)은 규칙으로 채운다
-        "category": summ.get("category") or topics.classify(titles),
+        "category": summ.get("category") or topics.classify(titles, coin=region == "co"),
         "keywords": summ.get("keywords") or topics.keywords(titles, names),
         "reason": summ.get("reason") or topics.reason(headline, names),
         "publisher_count": i.publisher_count, "publishers": pubs[:3],

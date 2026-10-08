@@ -263,7 +263,7 @@ def enrich_issues(db: Session) -> int:
                 ArticleInput(id=str(a.id), title=a.title, publisher=a.publisher, published_at=a.published_at,
                              snippet=a.snippet, body=bodies.get(a.id), kind=a.kind, sentiment=a.sentiment,
                              tickers=list(a.tickers or []),
-                             ticker_names=[names[c] for c in (a.tickers or []) if c in names])
+                             ticker_names=[names[c] for c in (a.tickers or []) if c in names], region=a.region)
                 for a in arts])
             db.execute(update(IssueSummaryRow).where(IssueSummaryRow.issue_id == issue.id)
                        .values(is_current=False))

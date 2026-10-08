@@ -67,4 +67,9 @@ export function ago(iso: string, now = Date.now()): string {
 export const SENTI_LABEL: Record<Sentiment, string> = { positive: "긍정", neutral: "중립", negative: "부정" };
 
 
+/** 종목 링크: 코인(COIN:BTC)은 코인 탭, 나머지는 마켓 대시보드 차트 */
+export function tickerHref(code: string): string {
+  return code.startsWith("COIN:") ? `/coins?c=${encodeURIComponent(code.slice(5))}` : `/?ticker=${encodeURIComponent(code)}`;
+}
+
 export const INDEX_SYMBOLS = new Set(["KS11", "KQ11", "US500", "IXIC", "USD/KRW", "DJI", "N225"]);

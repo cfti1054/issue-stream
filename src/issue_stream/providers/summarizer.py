@@ -39,6 +39,7 @@ class ArticleInput:
     sentiment: str | None = None
     tickers: list[str] = field(default_factory=list)
     ticker_names: list[str] = field(default_factory=list)   # 키워드·이유에서 종목명을 빼는 데만 쓴다
+    region: str | None = None   # kr / us / co (co 코인이면 주제를 코인 주제 목록에서 고른다)
 
 
 class Summarizer(ABC):
@@ -121,21 +122,28 @@ class ExtractiveSummarizer(Summarizer):
             conflicting_views=sents["positive"] > 0 and sents["negative"] > 0,
             source_article_ids=used_ids,
             generated_by=self.name,
-            category=topics.classify(titles + [a.snippet for a in articles if a.snippet]),
+            category=topics.classify(titles + [a.snippet for a in articles if a.snippet], coin=_is_coin(articles)),
             keywords=topics.keywords(titles, names),
             reason=topics.reason(articles[head].title, names),
         )
 
 
+def _is_coin(articles: list[ArticleInput]) -> bool:
+    """묶인 기사 다수가 코인 기사인지 (이슈 지역 판정과 같은 다수결)."""
+    from ..pipeline.region import majority
+    return majority(a.region for a in articles) == "co"
+
+
 # ── LLM 공통 ────────────────────────────────────────────────────
-SYSTEM_PROMPT = """당신은 한국 주식시장 뉴스 편집자입니다. 같은 사건을 다룬 기사 묶음을 받아 하나의 이슈 카드로 요약합니다.
+SYSTEM_PROMPT = """당신은 한국 주식·코인 시장 뉴스 편집자입니다. 같은 사건을 다룬 기사 묶음을 받아 하나의 이슈 카드로 요약합니다.
 규칙:
 - 제공된 기사에 없는 내용은 절대 쓰지 마세요. 수치·날짜는 기사에 나온 그대로만.
 - 추측이 섞이면 confidence 를 0.5 이하로 낮추세요.
 - 기사끼리 전망이 엇갈리면 conflicting_views 를 true 로.
-- affected_tickers 는 6자리 종목코드만. 후보 목록 밖의 코드는 넣지 마세요.
+- affected_tickers 는 종목코드 후보 목록에 있는 코드만 (국내 6자리, 미국 티커, 코인은 COIN:BTC 형식).
 - source_article_ids 에는 요약에 실제로 사용한 기사 id 만.
 - category 는 스키마의 목록 중 이 사건에 가장 맞는 주제 하나.
+  코인 기사면 코인 주제(ETF·기관, 규제·정책, 청산·파생, 스테이블코인, 거래소·상장, 기술·업그레이드, 시세 동향, 코인 시장) 중에서.
 - keywords 는 기사에 나온 핵심 표현 2~3개. 각 12자 이내의 명사구, 종목명은 넣지 마세요. (예: "AI칩 구매", "위성통신 정책")
 - reason 은 대표 종목(affected_tickers 첫 번째)이 움직인 이유를 "~로" 로 끝나는 20자 이내 한 구절로. 종목명은 빼세요.
   (예: "AI칩 자금조달 논의로", "외국인·기관 동반 매도로")
@@ -187,7 +195,7 @@ def _parse(text: str, generated_by: str, articles: list[ArticleInput]) -> IssueS
     names = sorted({n for a in articles for n in a.ticker_names})
     titles = [a.title for a in articles]
     if s.category not in topics.ALL_CATEGORIES:
-        s.category = topics.classify(titles)
+        s.category = topics.classify(titles, coin=_is_coin(articles))
     s.keywords = [k.strip() for k in s.keywords if k.strip() and not topics.too_long(k.strip())][:3]         or topics.keywords(titles, names)
     s.reason = (s.reason or "").strip() or topics.reason(s.headline, names)
     if len(s.reason) > 30:

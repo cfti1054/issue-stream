@@ -61,6 +61,7 @@ def bootstrap() -> None:
     from ..db.session import session_scope
 
     tasks.sync_watchlist()  # watchlist.yaml 변경 즉시 반영
+    tasks.sync_coins()      # sources.yaml coins → 종목 목록 (뉴스 태깅용)
     with session_scope() as db:
         n_tickers = db.scalar(select(func.count()).select_from(Ticker).where(Ticker.quote_code.is_(None)))
         n_us = db.scalar(select(func.count()).select_from(Ticker).where(Ticker.name_en.is_not(None)))

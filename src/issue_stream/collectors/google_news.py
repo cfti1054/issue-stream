@@ -39,10 +39,10 @@ class GoogleNewsCollector(Collector):
         self.extra = extra_queries or []
         self.per_ticker = per_ticker
         self.window = window
-        self.region = region      # us 면 이 검색 결과는 모두 미국 시장 기사로 본다
+        self.region = region      # us·co 면 이 검색 결과는 모두 그 시장 기사로 본다
         self.url = URL_EN if english else URL
         if english:
-            self.name = "google:en"
+            self.name = "google:co-en" if region == "co" else "google:en"
         elif region:
             self.name = f"google:{region}"
 

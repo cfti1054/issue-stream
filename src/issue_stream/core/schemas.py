@@ -26,7 +26,7 @@ class RawDoc(BaseModel):
     snippet: str | None = None        # RSS description / 검색 스니펫 (짧은 요약문)
     body: str | None = None           # FETCH_ARTICLE_BODY=true 일 때만. 저장 시 TTL 적용.
     raw_tickers: list[str] = Field(default_factory=list)  # 소스가 직접 준 종목코드(DART 등)
-    region: Literal["kr", "us"] | None = None  # 소스가 정해 둔 지역. None 이면 pipeline/region.py 가 판정
+    region: Literal["kr", "us", "co"] | None = None  # 소스가 정해 둔 지역(co 코인). None 이면 pipeline/region.py 가 판정
 
 
 class IssueSummary(BaseModel):

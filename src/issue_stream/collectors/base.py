@@ -98,6 +98,11 @@ def enabled_collectors() -> list[Collector]:
         if g.get("en_queries"):       # 미국판 구글 뉴스 (영어 원문)
             out.append(GoogleNewsCollector(g["en_queries"], per_ticker=False, window=window, region="us",
                                            english=True))
+        if g.get("coin_queries"):     # 코인 (한국어)
+            out.append(GoogleNewsCollector(g["coin_queries"], per_ticker=False, window=window, region="co"))
+        if g.get("coin_en_queries"):  # 코인 (영어 원문)
+            out.append(GoogleNewsCollector(g["coin_en_queries"], per_ticker=False, window=window, region="co",
+                                           english=True))
 
     y = src.get("yahoo_finance", {})
     if y.get("enabled"):

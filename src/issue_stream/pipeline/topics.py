@@ -30,7 +30,24 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
               "stocks", "market", "rally", "nasdaq", "s&p", "dow", "wall"),
 }
 DEFAULT_CATEGORY = "시장 이슈"
-ALL_CATEGORIES = [*CATEGORIES, DEFAULT_CATEGORY]
+
+# 코인 이슈(지역 co)용 주제. 주식 주제로 나누면 "8만달러" 같은 시세 표기 때문에 '환율'로 잘못 잡힌다.
+COIN_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "ETF·기관": ("etf", "현물", "기관", "순유입", "순유출", "블랙록", "inflow", "inflows", "outflow", "outflows",
+               "institutional", "treasury"),
+    "규제·정책": ("규제", "법안", "기본법", "금융위", "금감원", "정책", "과세", "제재", "sec", "regulation", "bill",
+              "lawsuit", "소송", "승인"),
+    "청산·파생": ("청산", "레버리지", "선물", "숏", "롱", "liquidation", "liquidations", "futures", "leverage"),
+    "스테이블코인": ("스테이블코인", "stablecoin", "stablecoins", "usdt", "usdc", "테더"),
+    "거래소·상장": ("업비트", "빗썸", "바이낸스", "코인베이스", "상장", "상폐", "거래소", "exchange", "listing", "binance",
+               "coinbase"),
+    "거시·금리": ("금리", "연준", "fed", "fomc", "물가", "cpi", "inflation", "rates", "rate"),
+    "기술·업그레이드": ("업그레이드", "메인넷", "하드포크", "네트워크", "해킹", "upgrade", "mainnet", "hack", "hacked"),
+    "시세 동향": ("급등", "급락", "상승", "하락", "돌파", "지지", "신고가", "최고가", "반등", "약세", "강세", "price",
+              "rally", "dip", "surge", "drop", "falls", "rises", "prediction", "forecast", "record"),
+}
+COIN_DEFAULT_CATEGORY = "코인 시장"
+ALL_CATEGORIES = list(dict.fromkeys([*CATEGORIES, DEFAULT_CATEGORY, *COIN_CATEGORIES, COIN_DEFAULT_CATEGORY]))
 
 _BRACKETS = re.compile(r"[\[\(<【〈][^\]\)>】〉]{0,12}[\]\)>】〉]")
 _CLAUSE = re.compile(r",(?!\d)|[…·:;|\"“”‘’!?]|\.{2,}")
@@ -72,12 +89,12 @@ def _tokens(title: str, lower: bool = True) -> list[str]:
     return [_strip_particle(w) for w in _SPLIT.split(t.lower() if lower else t) if w]
 
 
-def classify(texts: list[str]) -> str:
-    """제목(·스니펫) 묶음 → 주제. 단서 단어가 하나도 없으면 DEFAULT_CATEGORY."""
+def classify(texts: list[str], coin: bool = False) -> str:
+    """제목(·스니펫) 묶음 → 주제. coin 이면 코인 주제 목록에서. 단서 단어가 하나도 없으면 기본 주제."""
     toks = [tok for t in texts for tok in _tokens(t)]
     joined = " ".join(t.lower() for t in texts)
-    best, best_score = DEFAULT_CATEGORY, 0.0
-    for cat, cues in CATEGORIES.items():
+    best, best_score = (COIN_DEFAULT_CATEGORY if coin else DEFAULT_CATEGORY), 0.0
+    for cat, cues in (COIN_CATEGORIES if coin else CATEGORIES).items():
         # 한글 단서는 부분 일치(영업이익률·순매수세), 영어는 단어 일치
         score = sum(joined.count(c) if re.search(r"[가-힣&]", c) else toks.count(c) for c in cues)
         if score > best_score:

@@ -1,7 +1,7 @@
 // 시그널 맵: 이슈 1건 = 1줄. 주제·키워드·출처 → 대표 종목(이유·등락률) → 함께 언급된 종목
 import Link from "next/link";
-import { ApiError, api, type SignalBoard, type SignalQuote, type SignalRow } from "@/lib/api";
-import { ago, dir, isUS, pct, timeKST } from "@/lib/format";
+import { ApiError, api, type Region, type SignalBoard, type SignalQuote, type SignalRow } from "@/lib/api";
+import { ago, dir, isUS, pct, timeKST, tickerHref } from "@/lib/format";
 import ErrorBox from "@/components/ErrorBox";
 import { getUser } from "@/lib/user";
 
@@ -17,6 +17,11 @@ function color(name: string): string {
   return AVATAR[h % AVATAR.length];
 }
 
+/** 아이콘 글자: 코인은 코드(BTC), 그 밖에는 이름 첫 글자 */
+function badge(code: string, name: string, n = 1): string {
+  return code.startsWith("COIN:") ? code.slice(5) : initials(name, n);
+}
+
 function initials(name: string, n = 1): string {
   const t = name.replace(/^(KODEX|TIGER|ACE|SOL|KBSTAR|RISE)\s*/i, "").trim() || name;
   return /^[A-Za-z]/.test(t) ? t.slice(0, 2).toUpperCase() : t.slice(0, n);
@@ -30,11 +35,11 @@ function changeText(p: number | null): string {
 
 export default async function SignalsPage({ searchParams }: { searchParams: Promise<{ r?: string; h?: string }> }) {
   const q = await searchParams;
-  const region = q.r === "us" ? "us" : "kr";
+  const region: Region = q.r === "us" || q.r === "co" ? q.r : "kr";
   const hours = HOURS.find((h) => String(h) === q.h) ?? 6;
   const href = (r: string, h: number) => {
     const p = new URLSearchParams();
-    if (r === "us") p.set("r", "us");
+    if (r !== "kr") p.set("r", r);
     if (h !== 6) p.set("h", String(h));
     return p.size ? `/signals?${p}` : "/signals";
   };
@@ -63,10 +68,10 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
       <div className="sg-link" aria-hidden />
-      <Link className="sg-card" href={`/?ticker=${encodeURIComponent(s.main.code)}`} scroll={false}
+      <Link className="sg-card" href={tickerHref(s.main.code)} scroll={false}
         title={s.headline}>
         <span className="sg-logo" style={{ background: s.main.is_index ? "var(--ink-2)" : color(s.main.name) }}>
-          {s.main.is_index ? (region === "us" ? "US" : "KR") : initials(s.main.name, 2)}
+          {s.main.is_index && region !== "co" ? (region === "us" ? "US" : "KR") : badge(s.main.code, s.main.name, 2)}
           {isUS(s.main.market) && <span className="sg-flag">US</span>}
         </span>
         <span className="sg-name">{s.main.name}</span>
@@ -77,8 +82,9 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
       <div className={`sg-arrow ${s.related.length ? "" : "none"}`} aria-hidden />
       <div className="sg-rel">
         {s.related.map((r: SignalQuote) => (
-          <Link key={r.code} href={`/?ticker=${encodeURIComponent(r.code)}`} scroll={false}>
-            <span className="sg-mini" style={{ background: color(r.name) }} aria-hidden>{initials(r.name)}</span>
+          <Link key={r.code} href={tickerHref(r.code)} scroll={false}>
+            <span className={`sg-mini ${badge(r.code, r.name).length > 3 ? "long" : ""}`} style={{ background: color(r.name) }}
+              aria-hidden>{badge(r.code, r.name)}</span>
             <span className="sg-rn">{r.name}</span>
             <span className={`tnum ${dir(r.change_pct)}`}>{r.change_pct === null ? "–" : pct(r.change_pct)}</span>
           </Link>
@@ -101,6 +107,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
         <span className="chips chips-s" role="group" aria-label="지역">
           <Link href={href("kr", hours)} aria-current={region === "kr"}>국내</Link>
           <Link href={href("us", hours)} aria-current={region === "us"}>미국</Link>
+          <Link href={href("co", hours)} aria-current={region === "co"}>코인</Link>
         </span>
         <span className="chips chips-s" role="group" aria-label="기간">
           {HOURS.map((h) => (
@@ -111,7 +118,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
 
       <section className="sg-map" aria-label="시그널">
         {d.items.length === 0 && d.mine.length === 0 && (
-          <div className="card pad muted">최근 {hours}시간 {region === "us" ? "미국 시장 " : ""}이슈가 없습니다. 기간을 늘려 보세요.</div>
+          <div className="card pad muted">최근 {hours}시간 {region === "us" ? "미국 시장 " : region === "co" ? "코인 " : ""}이슈가 없습니다. 기간을 늘려 보세요.</div>
         )}
         {d.items.map(row)}
 

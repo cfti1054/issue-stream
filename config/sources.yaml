@@ -29,6 +29,11 @@ google_news:
   us_queries: ["뉴욕증시", "나스닥 마감", "연준 금리", "미국 국채 금리"]
   # 미국 시장: 영어 원문 (구글 뉴스 미국판)
   en_queries: ["stock market today", "Wall Street stocks", "Federal Reserve rates", "Nasdaq S&P 500"]
+  # 코인: 이 검색 결과는 '코인' 이슈로 묶여 대시보드 국내·미국 뉴스에는 섞이지 않는다
+  coin_queries: ["비트코인", "가상자산", "이더리움", "알트코인"]
+  # 영어 원문도 받으려면 채운다 (예: ["Bitcoin ETF", "crypto regulation"]). 'Bitcoin price' 같은 넓은 검색어는
+  # 가격 예측성 기사가 수십 건씩 한 이슈로 몰려 기본값은 비워 둔다
+  coin_en_queries: []
 
 # 야후 파이낸스 종목별 영어 헤드라인 (무료, 키 불필요). 누군가 ☆ 한 미국 종목마다 1회 요청
 yahoo_finance:
@@ -86,13 +91,15 @@ commodities:
 
 # 코인 화면의 주요 코인. code 는 업비트 원화 마켓 코드(KRW-BTC 의 BTC), coingecko 는 바이낸스가 막혔을 때
 # 해외 시세를 받을 코인게코 id. 일봉은 5분마다, 현재가·순위·김치 프리미엄은 화면을 열 때 받는다 (30초 캐시).
+# aliases: 뉴스에서 이 코인을 찾을 이름 (종목 목록에 COIN:BTC 로 등록돼 이슈·시그널에 태깅된다).
+#   영문 약어는 대소문자 그대로만 찾는다. SOL·ADA 처럼 일반 단어와 겹치는 약어는 넣지 않는다.
 coins:
-  - {code: BTC, name: 비트코인, coingecko: bitcoin}
-  - {code: ETH, name: 이더리움, coingecko: ethereum}
-  - {code: XRP, name: 리플, coingecko: ripple}
-  - {code: SOL, name: 솔라나, coingecko: solana}
-  - {code: DOGE, name: 도지코인, coingecko: dogecoin}
-  - {code: ADA, name: 에이다, coingecko: cardano}
+  - {code: BTC, name: 비트코인, coingecko: bitcoin, aliases: [Bitcoin, BTC]}
+  - {code: ETH, name: 이더리움, coingecko: ethereum, aliases: [Ethereum, ETH]}
+  - {code: XRP, name: 리플, coingecko: ripple, aliases: [엑스알피, XRP, Ripple]}
+  - {code: SOL, name: 솔라나, coingecko: solana, aliases: [Solana]}
+  - {code: DOGE, name: 도지코인, coingecko: dogecoin, aliases: [Dogecoin]}
+  - {code: ADA, name: 에이다, coingecko: cardano, aliases: [카르다노, Cardano]}
 
 # 업종 히트맵: 업종 ETF 의 전일 대비 등락률로 그린다 (KRX 업종 지수는 로그인이 필요해 대체).
 # name 은 화면 표시 이름, code 는 ETF 종목코드. doctor 가 실제 ETF 이름을 보여주니 맞는지 확인할 것.

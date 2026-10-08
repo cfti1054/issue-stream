@@ -442,3 +442,41 @@ def test_coins_board(client, monkeypatch):
     assert usd["currency"] == "USD" and usd["name"] == "비트코인"
     assert [p["close"] for p in usd["points"]] == [100_000.0, 100_000.0]               # 날짜별 환율로 나눔
     crypto._cache.clear()
+
+
+def test_coin_news_issues(client, auth):
+    """코인 뉴스: 코인 이슈로 묶이고(이슈 브리핑·시그널 '코인'), 대시보드 국내·미국 뉴스에는 섞이지 않는다."""
+    from datetime import datetime, timedelta, timezone
+
+    from issue_stream.collectors import crypto
+    from issue_stream.core.schemas import RawDoc
+    from issue_stream.db.session import session_scope
+    from issue_stream.jobs import tasks
+    from issue_stream.pipeline import run as pipeline
+    tasks.sync_coins()
+    now = datetime.now(timezone.utc)
+    titles = [("비트코인, 美 현물 ETF 사흘째 순유입…1억 1천만원대 지지", "연합뉴스", None),
+              ("비트코인 현물 ETF 순유입 사흘째…1억1천만원 지지", "머니투데이", None),
+              ("비트코인 ETF 사흘 연속 순유입, 1억 1천만원선 지켜", "한국경제", "co"),
+              ("Bitcoin ETF inflows extend to third day", "CoinDesk", "co")]
+    docs = [RawDoc(source="demo:coin", external_id=f"coin-{i}", title=t, url=f"https://example.com/coin/{i}",
+                   publisher=p, published_at=now - timedelta(minutes=10 * i), region=reg)
+            for i, (t, p, reg) in enumerate(titles)]
+    with session_scope() as db:
+        pipeline.collect_and_ingest(db, docs=docs)
+    with session_scope() as db:
+        pipeline.cluster_pending(db)
+    with session_scope() as db:
+        pipeline.enrich_issues(db)
+
+    co = client.get("/issues?region=co").json()["items"]
+    assert co and all(i["region"] == "co" for i in co)
+    assert any(t["code"] == "COIN:BTC" for i in co for t in i["tickers"])            # 별칭으로 코인 태깅
+    d = client.get("/dashboard").json()
+    assert all(i["region"] == "kr" for i in d["issues"]) and all(i["region"] == "us" for i in d["issues_us"])
+    crypto._cache.clear()
+    sig = client.get("/signals?region=co&hours=24").json()
+    assert sig["region"] == "co" and sig["items"][0]["main"]["code"] == "COIN:BTC"
+    # 코인은 관심종목 대상이 아니다 (검색에서 빠지고 직접 등록하면 400)
+    assert all(h["code"] != "COIN:BTC" for h in client.get("/tickers/search?q=비트코인", headers=auth).json())
+    assert client.put("/me/watchlist/COIN:BTC", headers=auth).status_code == 400

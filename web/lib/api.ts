@@ -86,9 +86,11 @@ export interface IssueArticle {
   also?: string[]; // 같은 내용을 받아쓴 다른 매체 (중복 기사는 한 줄로 묶음)
 }
 
+export type Region = "kr" | "us" | "co";   // 국내 / 미국 / 코인
+
 export interface IssueCard {
   no: number;
-  region: "kr" | "us";
+  region: Region;
   importance: number;
   sentiment: Sentiment;
   article_count: number;
@@ -204,7 +206,7 @@ export interface SignalRow {
 }
 
 export interface SignalBoard {
-  region: "kr" | "us";
+  region: Region;
   hours: number;
   generated_at: string;
   items: SignalRow[];
@@ -350,7 +352,7 @@ export const api = {
   coins: () => get<CoinBoard>("/market/coins"),
   fx: () => get<FxBoard>("/market/fx"),
   issue: (no: number) => get<IssueCard>(`/issues/${no}`),
-  signals: (region: "kr" | "us", hours: number) => get<SignalBoard>(`/signals?region=${region}&hours=${hours}`),
+  signals: (region: Region, hours: number) => get<SignalBoard>(`/signals?region=${region}&hours=${hours}`),
   issues: (q: {
     hours?: number; ticker?: string; sentiment?: string; region?: string; sort?: string;
     q?: string; qt?: string; page?: number; page_size?: number;

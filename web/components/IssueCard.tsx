@@ -1,7 +1,7 @@
 // 이슈 카드 1장 = 이슈 1개. 요약 → 출처(매체·시각) → 근거 불릿 → 종목 태그 → 확산 → 근거 기사(접힘)
 import Link from "next/link";
 import type { IssueCard as Issue } from "@/lib/api";
-import { SENTI_LABEL, ago, timeKST } from "@/lib/format";
+import { SENTI_LABEL, ago, timeKST, tickerHref } from "@/lib/format";
 import { CoverageBars } from "./charts";
 
 /** open: 근거 기사를 펼친 채로, scrollAt: 근거 기사가 이 건수 이상이면 목록 안에서 스크롤 */
@@ -20,6 +20,7 @@ export default function IssueCard({ issue, now, open = false, scrollAt = 7 }: {
         <span className={`senti senti-${issue.sentiment}`}>{SENTI_LABEL[issue.sentiment]}</span>
         {issue.has_disclosure && <span className="tag-disc">공시 확인</span>}
         {issue.region === "us" && <span className="tag-disc" title="미국 시장 이슈">미국</span>}
+        {issue.region === "co" && <span className="tag-disc" title="코인 시장 이슈">코인</span>}
         <span className="muted num-s" style={{ marginLeft: "auto" }}>
           {ago(issue.first_seen, now)} 최초 보도 · 최근 {ago(issue.last_seen, now)}
         </span>
@@ -43,7 +44,8 @@ export default function IssueCard({ issue, now, open = false, scrollAt = 7 }: {
       {issue.tickers.length > 0 && (
         <div className="tickers" aria-label="관련 종목">
           {issue.tickers.map((t) => (
-            <Link key={t.code} className="ticker" href={`/?ticker=${t.code}`} title="마켓 대시보드에서 시세 보기">
+            <Link key={t.code} className="ticker" href={tickerHref(t.code)}
+              title={t.code.startsWith("COIN:") ? "코인 탭에서 시세 보기" : "마켓 대시보드에서 시세 보기"}>
               {t.name} <span className="muted">{t.code}</span>
             </Link>
           ))}
