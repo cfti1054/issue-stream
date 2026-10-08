@@ -449,6 +449,6 @@ a.pg-btn:hover { text-decoration: none; background: var(--surface-2); }
   .sg-empty { padding-left: 0; }
 }
 
-/* 이슈 1건 보기 (/issues?no=): 근거 기사를 스크롤 상자 없이 모두 */
+/* 이슈 1건 보기 (/issues?no=): 근거 기사 10건 이상이면 약 9건 높이로 스크롤 */
 .issue-single { max-width: 880px; }
-.issue-single .ev-scroll { max-height: none; overflow: visible; }
+.issue-single .ev-list.ev-scroll { max-height: 480px; }

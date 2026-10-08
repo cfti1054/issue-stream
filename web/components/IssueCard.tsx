@@ -4,7 +4,10 @@ import type { IssueCard as Issue } from "@/lib/api";
 import { SENTI_LABEL, ago, timeKST } from "@/lib/format";
 import { CoverageBars } from "./charts";
 
-export default function IssueCard({ issue, now, open = false }: { issue: Issue; now: number; open?: boolean }) {
+/** open: 근거 기사를 펼친 채로, scrollAt: 근거 기사가 이 건수 이상이면 목록 안에서 스크롤 */
+export default function IssueCard({ issue, now, open = false, scrollAt = 7 }: {
+  issue: Issue; now: number; open?: boolean; scrollAt?: number;
+}) {
   const s = issue.summary;
   const hot = issue.importance >= 60;
   const cited = issue.articles?.filter((a) => a.cited).length ?? 0;
@@ -62,8 +65,8 @@ export default function IssueCard({ issue, now, open = false }: { issue: Issue; 
       {issue.articles && issue.articles.length > 0 && (
         <details className="evidence" open={open}>
           <summary>근거 기사 {issue.articles.length}건{cited ? ` (요약에 사용 ${cited}건)` : ""}</summary>
-          {/* 7건 이상이면 약 6건 높이로 고정하고 목록 안에서 스크롤 */}
-          <ul className={`ev-list ${issue.articles.length >= 7 ? "ev-scroll" : ""}`}>
+          {/* scrollAt 건 이상이면 높이를 고정하고 목록 안에서 스크롤 (목록 화면 약 6건, 이슈 1건 보기 약 9건) */}
+          <ul className={`ev-list ${issue.articles.length >= scrollAt ? "ev-scroll" : ""}`}>
             {issue.articles.map((a) => (
               <li key={a.no}>
                 <span className="t tnum">{timeKST(a.published_at)}</span>

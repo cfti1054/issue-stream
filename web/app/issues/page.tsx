@@ -150,7 +150,7 @@ async function SingleIssue({ no }: { no: number }) {
         <Link className="btn btn-s" href={issue.region === "us" ? "/issues?region=us" : "/issues"}>← 이슈 브리핑 전체 보기</Link>
       </div>
       <div className="issue-single">
-        <IssueCard issue={issue} now={Date.now()} open />
+        <IssueCard issue={issue} now={Date.now()} open scrollAt={10} />
       </div>
     </>
   );
