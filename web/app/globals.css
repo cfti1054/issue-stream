@@ -457,3 +457,27 @@ a.pg-btn:hover { text-decoration: none; background: var(--surface-2); }
 .fx-gold > b { color: var(--ink); }
 /* 원자재 카드 6장: 이름·등락이 두 줄로 꺾이지 않게 */
 .fx-tight .index-card .label, .fx-tight .index-card .chg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* ── 코인 ─────────────────────────────────────────────────── */
+.cn-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.cn-stat { padding: 12px 14px; display: grid; gap: 2px; align-content: start; }
+.cn-stat .label { font-size: var(--fs-num-s); color: var(--ink-2); font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.cn-stat .v { font-size: 20px; font-weight: 700; }
+.cn-stat .v small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.cn-stat .sub { font-size: var(--fs-num-s); color: var(--muted); }
+.cn-fg { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); }
+.cn-fg.greed { background: color-mix(in srgb, var(--up-mark) 14%, var(--surface)); color: var(--up); }
+.cn-fg.fear { background: color-mix(in srgb, var(--down-mark) 14%, var(--surface)); color: var(--down); }
+.cn-gauge { height: 6px; border-radius: 3px; margin-top: 6px; position: relative;
+  background: linear-gradient(90deg, var(--down-mark), var(--axis) 50%, var(--up-mark)); }
+.cn-gauge b { position: absolute; top: -3px; width: 4px; height: 12px; border-radius: 2px; background: var(--ink); }
+.cn-coins .index-card .label, .cn-coins .index-card .chg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cn-tbl { overflow-x: auto; }
+.cn-table { width: 100%; border-collapse: collapse; }
+.cn-table th, .cn-table td { padding: 7px 8px; border-top: 1px solid var(--grid); text-align: left; white-space: nowrap; }
+.cn-table th { border-top: 0; font-size: var(--fs-num-s); color: var(--muted); font-weight: 600; }
+.cn-table .r { text-align: right; }
+.cn-table tbody tr:hover td { background: var(--surface-2); }
+.cn-bar { display: inline-block; height: 6px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+.cn-bar.up { background: var(--up-mark); }
+.cn-bar.down { background: var(--down-mark); }

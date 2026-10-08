@@ -11,6 +11,7 @@ export function Nav() {
     { href: "/issues", label: "이슈 브리핑" },
     { href: "/signals", label: "시그널" },
     { href: "/fx", label: "환율·원자재" },
+    { href: "/coins", label: "코인" },
   ];
   return (
     <nav className="nav" aria-label="화면">

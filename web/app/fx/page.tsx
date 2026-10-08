@@ -36,7 +36,7 @@ export default async function FxPage({ searchParams }: { searchParams: Promise<{
   const sel = all.find((it) => it.symbol === c) ?? all[0];
   let series: PriceSeries | null = null;
   if (sel) {
-    try { series = await api.prices(sel.symbol, 130, wantKrw); } catch { series = null; }
+    try { series = await api.prices(sel.symbol, 130, wantKrw ? "krw" : undefined); } catch { series = null; }
   }
   // 원화로 환산된 차트면 제목 단위·최고·최저도 환산된 시세에서 (카드는 원래 통화 그대로)
   const krwMode = series?.currency === "KRW";

@@ -399,3 +399,46 @@ def test_prices_in_krw(client):
     assert gold["unit"] == "원/g" and abs(gold["points"][-1]["close"] - 110_000) < 1   # 100온스 → g
     won = client.get("/market/prices/USD/KRW?days=2&krw=true").json()
     assert won["convertible"] is False and won["currency"] is None
+
+
+def test_coins_board(client, monkeypatch):
+    """코인: 시장 요약·김치 프리미엄·순위(거래대금 상위 100 안에서 상승·하락)·달러 보기."""
+    from datetime import date, timedelta
+
+    from issue_stream.collectors import crypto
+    from issue_stream.db.models import Price
+    from issue_stream.db.ops import upsert
+    from issue_stream.db.session import session_scope
+    crypto._cache.clear()
+    names = {"KRW-BTC": "비트코인", "KRW-ETH": "이더리움", "KRW-XRP": "리플", "KRW-SOL": "솔라나",
+             "KRW-DOGE": "도지코인", "KRW-ADA": "에이다", "KRW-TINY": "잡코인"}
+    live = [{"market": m, "code": m[4:], "price": p, "change": 0.0, "change_pct": c, "volume_krw": v}
+            for m, p, c, v in (("KRW-BTC", 110_000_000, -0.5, 1.3e11), ("KRW-ETH", 3_500_000, 1.0, 1.0e11),
+                               ("KRW-XRP", 1900, -1.0, 2.1e11), ("KRW-SOL", 150_000, 2.0, 5e10),
+                               ("KRW-DOGE", 120, -3.0, 4e10), ("KRW-ADA", 345, 0.5, 3e10), ("KRW-TINY", 5, 90.0, 1e6))]
+    monkeypatch.setattr(crypto, "krw_markets", lambda: names)
+    monkeypatch.setattr(crypto, "tickers", lambda markets: live)
+    monkeypatch.setattr(crypto, "global_usd", lambda coins: {"BTC": 80_000.0, "ETH": 2500.0})
+    monkeypatch.setattr(crypto, "market_overview", lambda: {"market_cap_usd": 2.8e12, "btc_dominance": 58.8,
+                                                            "eth_dominance": 9.4, "market_cap_change_pct": 1.2})
+    monkeypatch.setattr(crypto, "fear_greed", lambda: {"value": 64, "label": "탐욕", "prev": 71})
+    d1 = date.today() - timedelta(days=1)
+    with session_scope() as db:
+        for day, btc, fx in ((d1, 100_000_000.0, 1000.0), (date.today(), 110_000_000.0, 1100.0)):
+            upsert(db, Price, dict(symbol="COIN:BTC", day=day, close=btc, source="test"), ["symbol", "day"])
+            upsert(db, Price, dict(symbol="USD/KRW", day=day, close=fx, source="test"), ["symbol", "day"])
+
+    d = client.get("/market/coins").json()
+    s = d["summary"]
+    assert s["btc_dominance"] == 58.8 and s["fear_greed"]["value"] == 64 and s["markets"] == 7
+    assert s["market_cap_krw"] == 2.8e12 * 1100
+    assert s["kimchi"]["code"] == "BTC" and s["kimchi"]["premium_pct"] == 25.0      # 1.1억 vs 8만$×1100
+    assert [c["code"] for c in d["coins"]][:2] == ["BTC", "ETH"] and d["coins"][0]["price"] == 110_000_000
+    assert [p["code"] for p in d["premium"]] == ["BTC", "ETH"]                         # 해외 시세 있는 코인만
+    assert d["ranking"]["value"][0]["name"] == "리플"
+    assert d["ranking"]["up"][0]["code"] == "TINY"                                     # 7종목뿐이라 상위 100 안
+    assert d["ranking"]["down"][0]["code"] == "DOGE"
+    usd = client.get("/market/prices/COIN:BTC?days=2&usd=true").json()
+    assert usd["currency"] == "USD" and usd["name"] == "비트코인"
+    assert [p["close"] for p in usd["points"]] == [100_000.0, 100_000.0]               # 날짜별 환율로 나눔
+    crypto._cache.clear()

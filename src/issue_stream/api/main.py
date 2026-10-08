@@ -9,6 +9,7 @@
   이슈 브리핑    GET /issues                      이슈 카드 (근거 기사·보도량 추이 포함)
                  GET /issues/{no}                 이슈 상세 (확산 타임라인)
   시그널         GET /signals                     이슈 주제 → 대표 종목(이유·등락률) → 연관 종목
+  코인           GET /market/coins                시장 요약·주요 코인·김치 프리미엄·업비트 순위
   환율·원자재    GET /market/fx                   원화 환율·달러 지표·금·은·원유·구리
   로그인·가입    POST /auth/login, /auth/signup, /auth/logout, GET /auth/me, /auth/config   (api/auth.py)
   관심종목       GET /me/watchlist, PUT·DELETE /me/watchlist/{code}, GET /tickers/search
@@ -169,7 +170,7 @@ def _sectors(s: Session, market: str = "ETF") -> dict:
 
 JOB_LABELS = {
     "job_news_pipeline": "뉴스 수집", "job_backfill_prices": "시세", "job_daily_close": "시세(마감)",
-    "job_intraday_prices": "시세(장중)", "job_fx_rates": "환율·원자재", "job_sync_tickers": "종목 목록",
+    "job_intraday_prices": "시세(장중)", "job_fx_rates": "환율·원자재", "job_coin_prices": "코인", "job_sync_tickers": "종목 목록",
     "job_macro": "거시 지표",
 }
 STALE_DAYS = 4
@@ -227,8 +228,9 @@ def dashboard(sort: str = "importance", s: Session = Depends(db), user: User | N
 
 
 @app.get("/market/prices/{symbol:path}")
-def prices(symbol: str, days: int = 120, krw: bool = False, s: Session = Depends(db)):
-    """일봉 시세. krw=true 면 달러 표시 항목(미국 주식·국제 원자재)을 그날 원/달러로 곱해 원화로 돌려준다."""
+def prices(symbol: str, days: int = 120, krw: bool = False, usd: bool = False, s: Session = Depends(db)):
+    """일봉 시세. krw=true 면 달러 표시 항목(미국 주식·국제 원자재)을 그날 원/달러로 곱해 원화로,
+    usd=true 면 원화 표시 코인(COIN:BTC)을 그날 원/달러로 나눠 달러로 돌려준다."""
     t = s.get(Ticker, symbol)
     rows = _series(s, symbol, days)
     if t is not None and _needs_fetch(t, rows, days):
@@ -241,6 +243,13 @@ def prices(symbol: str, days: int = 120, krw: bool = False, s: Session = Depends
         rows = _series(s, symbol, days)
     points = [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
                "volume": r.volume, "change_pct": r.change_pct} for r in rows]
+    if symbol.startswith("COIN:"):   # 코인: 원화가 기본, 달러로 바꿔 볼 수 있다
+        code = symbol.removeprefix("COIN:")
+        name = next((c["name"] for c in load_yaml("sources.yaml").get("coins", []) if c["code"] == code), code)
+        if usd and points:
+            points = _convert(s, points, 1.0, to_usd=True)
+        return {"symbol": symbol, "name": name, "market": None, "is_stock": False, "convertible": True,
+                "currency": "USD" if usd else "KRW", "unit": "$" if usd else "원", "points": points}
     usd = is_us_market(t.market) if t else False
     cmdt = next((c for c in load_yaml("sources.yaml").get("commodities", []) if c["symbol"] == symbol), None)
     if cmdt:
@@ -248,7 +257,7 @@ def prices(symbol: str, days: int = 120, krw: bool = False, s: Session = Depends
     unit = cmdt.get("unit") if cmdt else ("$" if usd else None)
     krw_unit = (cmdt.get("krw_unit") if cmdt else None) or ("원" if usd else None)
     if krw and usd and points:
-        points = _to_krw(s, points, float(cmdt.get("krw_per", 1)) if cmdt else 1.0)
+        points = _convert(s, points, float(cmdt.get("krw_per", 1)) if cmdt else 1.0)
     return {"symbol": symbol, "name": t.name if t else (cmdt["name"] if cmdt else symbol),
             "market": t.market if t else None,
             "is_stock": t is not None,   # 지수·환율은 종목 마스터에 없다
@@ -258,8 +267,9 @@ def prices(symbol: str, days: int = 120, krw: bool = False, s: Session = Depends
             "points": points}
 
 
-def _to_krw(s: Session, points: list[dict], per: float) -> list[dict]:
-    """각 날짜의 값 × 그날(없으면 직전 날) 원/달러 ÷ per. 등락률은 원화 기준으로 다시 계산한다."""
+def _convert(s: Session, points: list[dict], per: float, to_usd: bool = False) -> list[dict]:
+    """각 날짜의 값 × 그날(없으면 직전 날) 원/달러 ÷ per (to_usd 면 ÷ 원/달러).
+    등락률은 바꾼 통화 기준으로 다시 계산한다."""
     from bisect import bisect_right
     fx = s.execute(select(Price.day, Price.close).where(Price.symbol == "USD/KRW",
                                                       Price.day >= points[0]["day"] - timedelta(days=10))
@@ -270,12 +280,86 @@ def _to_krw(s: Session, points: list[dict], per: float) -> list[dict]:
     out, prev = [], None
     for p in points:
         i = bisect_right(days, p["day"]) - 1
-        rate = (fx[i][1] if i >= 0 else fx[0][1]) / per
-        q = p | {k: (round(p[k] * rate, 2) if p[k] is not None else None) for k in ("close", "open", "high", "low")}
+        usdkrw = fx[i][1] if i >= 0 else fx[0][1]
+        rate = 1 / usdkrw if to_usd else usdkrw / per
+        nd = 6 if to_usd else 2   # 달러로 바꾸면 도지코인처럼 1달러 미만도 있다
+        q = p | {k: (round(p[k] * rate, nd) if p[k] is not None else None) for k in ("close", "open", "high", "low")}
         q["change_pct"] = round((q["close"] / prev - 1) * 100, 2) if prev else p["change_pct"]
         prev = q["close"]
         out.append(q)
     return out
+
+
+# ── 코인 ─────────────────────────────────────────────────────
+RANK_SIZE = 10
+
+
+@app.get("/market/coins")
+def coins_board(s: Session = Depends(db)):
+    """코인 화면. 현재가·순위는 업비트(30초 캐시), 시가총액·점유율은 코인게코, 공포·탐욕은 alternative.me (10분 캐시).
+    summary  시장 요약 (시가총액·BTC 점유율·공포탐욕·BTC 김치 프리미엄)
+    coins    주요 코인 카드 (sources.yaml coins) · premium 코인별 김치 프리미엄 · ranking 거래대금·상승·하락 상위"""
+    from ..collectors import crypto
+    cfg = load_yaml("sources.yaml").get("coins", [])
+    names = crypto.cached("markets", 86_400, crypto.krw_markets) or {}
+    live = crypto.cached("tickers", 30, lambda: crypto.tickers(list(names) or [f"KRW-{c['code']}" for c in cfg])) or []
+    by_code = {x["code"]: x for x in live}
+    usd_rows = _series(s, "USD/KRW", 1)
+    usdkrw = usd_rows[-1].close if usd_rows else None
+
+    coins = []
+    for c in cfg:
+        sym = f"COIN:{c['code']}"
+        rows = _series(s, sym, 130)
+        closes = [r.close for r in rows]
+        t = by_code.get(c["code"])
+        price = t["price"] if t else (closes[-1] if closes else None)
+        if price is None:
+            continue
+        coins.append({"symbol": sym, "code": c["code"], "name": c["name"], "price": price,
+                      "change": t["change"] if t else None, "change_pct": t["change_pct"] if t else None,
+                      "volume_krw": t["volume_krw"] if t else None,
+                      "spark": closes[-30:], "high": max(closes) if closes else None,
+                      "low": min(closes) if closes else None, "since": rows[0].day if rows else None,
+                      "live": t is not None})
+
+    glob = crypto.cached("global_usd", 30, lambda: crypto.global_usd(cfg)) or {}
+    premium = []
+    if usdkrw:
+        for c in coins:
+            g = glob.get(c["code"])
+            if g:
+                gk = g * usdkrw
+                premium.append({"code": c["code"], "name": c["name"], "upbit": c["price"],
+                                "global_usd": g, "global_krw": round(gk, 2),
+                                "premium_pct": round((c["price"] / gk - 1) * 100, 2)})
+
+    overview = crypto.cached("overview", 600, crypto.market_overview)
+    ranked = [x | {"name": names.get(x["market"], x["code"])} for x in live]
+    by_value = sorted(ranked, key=lambda x: -x["volume_krw"])
+    # 상승·하락은 거래대금이 너무 작은 코인(상위 100위 밖)을 빼서 잡코인 급등락에 휘둘리지 않게
+    liquid = by_value[:100]
+    return {
+        "updated_at": _now(),
+        "summary": {
+            "market_cap_usd": overview["market_cap_usd"] if overview else None,
+            "market_cap_krw": overview["market_cap_usd"] * usdkrw if overview and usdkrw else None,
+            "market_cap_change_pct": overview["market_cap_change_pct"] if overview else None,
+            "btc_dominance": overview["btc_dominance"] if overview else None,
+            "eth_dominance": overview["eth_dominance"] if overview else None,
+            "fear_greed": crypto.cached("fng", 600, crypto.fear_greed),
+            "kimchi": next((p for p in premium if p["code"] == "BTC"), None),
+            "usdkrw": usdkrw,
+            "markets": len(names),
+        },
+        "coins": coins,
+        "premium": premium,
+        "ranking": {
+            "value": by_value[:RANK_SIZE],
+            "up": sorted(liquid, key=lambda x: -x["change_pct"])[:RANK_SIZE],
+            "down": sorted(liquid, key=lambda x: x["change_pct"])[:RANK_SIZE],
+        },
+    }
 
 
 TROY_OUNCE_G = 31.1034768   # 금·은 1트로이온스 = 31.1g

@@ -9,7 +9,7 @@ KRX 정보데이터시스템은 2024-12 부터 로그인이 필요해 pykrx·Fin
 
 소스 표기:  "naver:stock:005930", "naver:world:NVDA.O", "naver:index:KOSPI", "naver:worldindex:.INX",
            "naver:fx:FX_USDKRW", "naver:metal:M04020000"(KRX 금현물),
-           "yahoo:^GSPC", "fdr:US500"
+           "yahoo:^GSPC", "fdr:US500", "upbit:KRW-BTC"(코인 원화)
            "*100" 을 붙이면 값에 곱한다 (예: "yahoo:JPYKRW=X*100" → 1엔당 시세를 100엔당으로).
 미국 종목은 tickers.code 가 티커(NVDA), tickers.quote_code 가 네이버 조회 코드(NVDA.O, NYSE 는 대개 접미사 없음).
 `issue-stream doctor` 로 PC 에서 각 소스가 실제로 응답하는지 확인할 수 있다.
@@ -200,6 +200,9 @@ def _fetch(source: str, n: int) -> list[Bar]:
         return yahoo(parts[1], n)
     if parts[0] == "fdr":
         return fdr(parts[1], n)
+    if parts[0] == "upbit":   # 코인 원화 일봉 (upbit:KRW-BTC)
+        from .crypto import upbit_days
+        return upbit_days(parts[1], n)
     raise ValueError(f"알 수 없는 시세 소스: {source}")
 
 

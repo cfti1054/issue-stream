@@ -84,6 +84,16 @@ commodities:
   - {symbol: "CMDT:BRENT", name: "브렌트유", unit: "$/배럴", currency: USD, krw_unit: "원/배럴"}
   - {symbol: "CMDT:COPPER", name: "구리", unit: "$/lb", currency: USD, krw_unit: "원/lb"}
 
+# 코인 화면의 주요 코인. code 는 업비트 원화 마켓 코드(KRW-BTC 의 BTC), coingecko 는 바이낸스가 막혔을 때
+# 해외 시세를 받을 코인게코 id. 일봉은 5분마다, 현재가·순위·김치 프리미엄은 화면을 열 때 받는다 (30초 캐시).
+coins:
+  - {code: BTC, name: 비트코인, coingecko: bitcoin}
+  - {code: ETH, name: 이더리움, coingecko: ethereum}
+  - {code: XRP, name: 리플, coingecko: ripple}
+  - {code: SOL, name: 솔라나, coingecko: solana}
+  - {code: DOGE, name: 도지코인, coingecko: dogecoin}
+  - {code: ADA, name: 에이다, coingecko: cardano}
+
 # 업종 히트맵: 업종 ETF 의 전일 대비 등락률로 그린다 (KRX 업종 지수는 로그인이 필요해 대체).
 # name 은 화면 표시 이름, code 는 ETF 종목코드. doctor 가 실제 ETF 이름을 보여주니 맞는지 확인할 것.
 sector_etfs:

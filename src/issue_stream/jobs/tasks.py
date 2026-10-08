@@ -223,6 +223,19 @@ def job_backfill_prices(days: int = 130) -> int:
     return _raise_if_nothing(n1 + n2 + n3 + n4, p1 + p2 + p3 + p4, "과거 시세")
 
 
+def coin_items() -> list[dict]:
+    """sources.yaml coins → 시세 저장용 항목 (COIN:BTC, 업비트 원화 일봉)."""
+    return [{"symbol": f"COIN:{c['code']}", "sources": [f"upbit:KRW-{c['code']}"]}
+            for c in load_yaml("sources.yaml").get("coins", [])]
+
+
+@tracked
+def job_coin_prices(days: int = 2) -> int:
+    """코인 일봉: 5분마다 (24시간 거래라 장 시간을 따지지 않는다). 오늘 봉은 현재가로 갱신된다."""
+    n, problems = _save_symbols(coin_items(), days)
+    return _raise_if_nothing(n, problems, "코인 시세")
+
+
 @tracked
 def job_fx_rates(days: int = 2) -> int:
     """환율·원자재 화면: 평일 10분마다 (외환·선물 시장은 거의 24시간 열려 장중 여부를 따지지 않는다)."""

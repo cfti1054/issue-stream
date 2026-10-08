@@ -250,12 +250,63 @@ export interface FxBoard {
   gold: GoldPremium | null;
 }
 
+export interface CoinCard {
+  symbol: string;          // "COIN:BTC" (차트 조회용)
+  code: string;            // "BTC"
+  name: string;
+  price: number;           // 업비트 원화 현재가
+  change: number | null;
+  change_pct: number | null;   // 24시간
+  volume_krw: number | null;   // 24시간 거래대금
+  spark: number[];
+  high: number | null;     // 최근 약 6개월 일봉 최고·최저
+  low: number | null;
+  since: string | null;
+  live: boolean;           // false 면 업비트 응답 실패로 저장된 마지막 일봉 값
+}
+
+export interface CoinPremium {
+  code: string;
+  name: string;
+  upbit: number;
+  global_usd: number;
+  global_krw: number;      // 해외가 × 원/달러
+  premium_pct: number;
+}
+
+export interface CoinRank {
+  market: string;
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  volume_krw: number;
+}
+
+export interface CoinBoard {
+  updated_at: string;
+  summary: {
+    market_cap_usd: number | null;
+    market_cap_krw: number | null;
+    market_cap_change_pct: number | null;
+    btc_dominance: number | null;
+    eth_dominance: number | null;
+    fear_greed: { value: number; label: string; prev: number | null } | null;
+    kimchi: CoinPremium | null;
+    usdkrw: number | null;
+    markets: number;
+  };
+  coins: CoinCard[];
+  premium: CoinPremium[];
+  ranking: { value: CoinRank[]; up: CoinRank[]; down: CoinRank[] };
+}
+
 export interface PriceSeries {
   symbol: string;
   name: string;
   market: string | null;
   is_stock: boolean;
-  convertible: boolean;          // 달러 표시 항목(미국 주식·국제 원자재) → 원화 토글 가능
+  convertible: boolean;          // 통화 토글 가능 (미국 주식·국제 원자재: 달러→원, 코인: 원→달러)
   currency: "USD" | "KRW" | null;
   unit: string | null;           // "$", "$/oz", "원/g" …
   points: PricePoint[];
@@ -293,8 +344,10 @@ const get = <T,>(path: string) => call<T>("GET", path);
 
 export const api = {
   dashboard: (sort?: "importance" | "recent") => get<Dashboard>(`/dashboard${sort === "recent" ? "?sort=recent" : ""}`),
-  prices: (symbol: string, days = 120, krw = false) =>
-    get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}${krw ? "&krw=true" : ""}`),
+  /** conv: "krw" 달러 표시 항목을 원화로, "usd" 원화 표시 코인을 달러로 */
+  prices: (symbol: string, days = 120, conv?: "krw" | "usd") =>
+    get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}${conv ? `&${conv}=true` : ""}`),
+  coins: () => get<CoinBoard>("/market/coins"),
   fx: () => get<FxBoard>("/market/fx"),
   issue: (no: number) => get<IssueCard>(`/issues/${no}`),
   signals: (region: "kr" | "us", hours: number) => get<SignalBoard>(`/signals?region=${region}&hours=${hours}`),

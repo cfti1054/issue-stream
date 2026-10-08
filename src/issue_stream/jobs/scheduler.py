@@ -34,6 +34,8 @@ def build(cls=BlockingScheduler):
                                                           timezone=TZ), id="us_intraday")
     # 환율·원자재 : 월~토 10분 간격 (외환시장은 평일 거의 24시간, 토요일 새벽 뉴욕 마감까지. 일요일은 쉼)
     sch.add_job(tasks.job_fx_rates, CronTrigger(day_of_week="mon-sat", minute="*/10", timezone=TZ), id="fx")
+    # 코인 일봉 : 5분 간격, 매일 (24시간 거래)
+    sch.add_job(tasks.job_coin_prices, CronTrigger(minute="*/5", timezone=TZ), id="coins")
     # 시그널 화면 종목 시세 : 10분 간격 (뉴스 수집 직후에 새 종목을 받도록 5분 어긋나게)
     sch.add_job(tasks.job_signal_prices, CronTrigger(minute="5-59/10", timezone=TZ), id="signal_prices")
     # 장 마감 확정치·지수·업종 히트맵 : 평일 16:10 (해외 지수는 다음 날 아침 07:10 에 한 번 더)
@@ -68,6 +70,8 @@ def bootstrap() -> None:
         cfg = load_yaml("sources.yaml")
         fx = [it["symbol"] for it in cfg.get("fx_rates", []) + cfg.get("commodities", [])]
         fx_have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_(fx)).distinct()).all())
+        coins = [it["symbol"] for it in tasks.coin_items()]
+        coins_have = set(db.scalars(select(Price.symbol).where(Price.symbol.in_(coins)).distinct()).all())
     if n_tickers < MIN_KR_TICKERS:   # 첫 실행이거나 지난 동기화가 실패해 관심종목 정도만 있을 때
         log.info("국내 종목 목록 %d개 → 동기화 (태깅 사전)", n_tickers)
         tasks.job_sync_tickers()
@@ -82,6 +86,9 @@ def bootstrap() -> None:
         if set(fx) - fx_have:   # 환율·원자재 화면에 새 항목이 생겼을 때
             log.info("환율·원자재 과거 시세 채우기")
             tasks.job_fx_rates(days=130)
+    if set(coins) - coins_have:   # 코인 화면에 새 코인이 생겼을 때
+        log.info("코인 과거 시세 채우기")
+        tasks.job_coin_prices(days=130)
     log.info("뉴스 수집·이슈 묶기 시작")
     tasks.job_news_pipeline()
     log.info("초기 데이터 준비 완료 → http://localhost:3000")

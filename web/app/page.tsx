@@ -62,7 +62,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const chartCode = ticker ?? fallback?.code;
   let series: PriceSeries | null = null;
   if (chartCode) {
-    try { series = await api.prices(chartCode, 120, q.krw === "1"); } catch { series = null; }
+    try { series = await api.prices(chartCode, 120, q.krw === "1" ? "krw" : undefined); } catch { series = null; }
   }
   const watched = d.watchlist.find((w) => w.code === chartCode);
   // 관심종목이 아니면 시세 데이터로 헤더를 채운다 (수집 대상이 아니면 시세가 비어 있을 수 있음)
