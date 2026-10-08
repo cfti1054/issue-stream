@@ -83,6 +83,7 @@ export interface IssueArticle {
   kind: "news" | "disclosure";
   sentiment: Sentiment | null;
   cited: boolean;
+  also?: string[]; // 같은 내용을 받아쓴 다른 매체 (중복 기사는 한 줄로 묶음)
 }
 
 export interface IssueCard {

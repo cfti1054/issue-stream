@@ -70,7 +70,9 @@ export default function IssueCard({ issue, now }: { issue: Issue; now: number })
                 <div>
                   <a className="ttl" href={a.url} target="_blank" rel="noreferrer">{a.title}</a>
                   <div className="m">
-                    <span>{a.publisher}</span>
+                    <span title={a.also?.join(", ")}>
+                      {a.publisher}{a.also && a.also.length > 0 ? ` 외 ${a.also.length}곳` : ""}
+                    </span>
                     {a.kind === "disclosure" && <span>공시</span>}
                     {a.sentiment && <span className={`senti senti-${a.sentiment}`}>{SENTI_LABEL[a.sentiment]}</span>}
                     {a.cited && <span className="cited">요약 근거</span>}

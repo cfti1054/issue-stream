@@ -399,11 +399,19 @@ def _issue_card(s: Session, i: Issue, with_articles: bool = True) -> dict:
     if with_articles:
         # 저작권: 제목·매체·시각·링크만 노출 (본문 없음). 요약에 쓰인 근거 기사를 먼저.
         used = set((summ.payload.get("source_article_ids") if summ else []) or [])
-        card["articles"] = sorted(
-            [{"no": a.no, "title": a.title, "publisher": a.publisher, "url": a.url,
-              "published_at": a.published_at, "kind": a.kind, "sentiment": a.sentiment,
-              "cited": str(a.id) in used} for a in arts],
-            key=lambda x: (not x["cited"], x["published_at"]))
+        # 받아쓰기 중복(duplicate_of)은 원본 한 줄로 묶고 다른 매체만 덧붙인다. 보도량·매체 수에는 위에서 이미 반영.
+        groups: dict[int, list[Article]] = {}
+        for a in arts:
+            groups.setdefault(a.duplicate_of or a.id, []).append(a)
+        rows = []
+        for key, g in groups.items():
+            head = next((a for a in g if a.id == key), g[0])
+            rows.append({"no": head.no, "title": head.title, "publisher": head.publisher, "url": head.url,
+                         "published_at": head.published_at, "kind": head.kind, "sentiment": head.sentiment,
+                         "cited": any(str(a.id) in used for a in g),
+                         "also": list(dict.fromkeys(a.publisher for a in g
+                                                    if a is not head and a.publisher and a.publisher != head.publisher))})
+        card["articles"] = sorted(rows, key=lambda x: (not x["cited"], x["published_at"]))
     return card
 
 
