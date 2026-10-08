@@ -7,6 +7,7 @@ import { Sparkline } from "@/components/charts";
 import PriceChart from "@/components/PriceChart";
 import ErrorBox from "@/components/ErrorBox";
 import FxConverter from "@/components/FxConverter";
+import CurrencyToggle from "@/components/CurrencyToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,10 @@ const isCommodity = (it: BoardItem): it is CommodityItem => "unit_label" in it;
 const unitOf = (it: BoardItem) =>
   isCommodity(it) ? it.unit_label : isKRW(it) ? `${(it as FxItem).unit} ${(it as FxItem).currency}` : it.symbol;
 
-export default async function FxPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
-  const { c } = await searchParams;
+export default async function FxPage({ searchParams }: { searchParams: Promise<{ c?: string; krw?: string }> }) {
+  const { c, krw: krwParam } = await searchParams;
+  const wantKrw = krwParam === "1";   // 원화 보기: 다른 항목을 골라도 유지
+  const fxHref = (sym: string, k = wantKrw) => `/fx?c=${encodeURIComponent(sym)}${k ? "&krw=1" : ""}`;
   let d: FxBoard;
   try {
     d = await api.fx();
@@ -33,14 +36,20 @@ export default async function FxPage({ searchParams }: { searchParams: Promise<{
   const sel = all.find((it) => it.symbol === c) ?? all[0];
   let series: PriceSeries | null = null;
   if (sel) {
-    try { series = await api.prices(sel.symbol, 130); } catch { series = null; }
+    try { series = await api.prices(sel.symbol, 130, wantKrw); } catch { series = null; }
   }
+  // 원화로 환산된 차트면 제목 단위·최고·최저도 환산된 시세에서 (카드는 원래 통화 그대로)
+  const krwMode = series?.currency === "KRW";
+  const closes = series?.points.map((p) => p.close) ?? [];
+  const chartDigits = krwMode ? 0 : sel ? digitsOf(sel) : 2;
+  const hi = krwMode ? Math.max(...closes) : sel?.high;
+  const lo = krwMode ? Math.min(...closes) : sel?.low;
 
   // sparkW: 추이 그래프 폭 (원자재는 한 줄에 6장이라 좁게)
   const card = (it: BoardItem, sparkW = 84) => {
     const dg = digitsOf(it);
     return (
-      <Link key={it.symbol} className="card index-card fx-card" href={`/fx?c=${encodeURIComponent(it.symbol)}`}
+      <Link key={it.symbol} className="card index-card fx-card" href={fxHref(it.symbol)}
         scroll={false} aria-current={it.symbol === sel?.symbol ? "true" : undefined}>
         <span className="label">
           {it.name} <span className="muted">{unitOf(it)}</span>
@@ -103,12 +112,15 @@ export default async function FxPage({ searchParams }: { searchParams: Promise<{
           <div className="grid-2">
             <section className="card pad" aria-label="시세 차트">
               <h2 className="section-title">
-                {sel.name} <small>{unitOf(sel)}</small>
-                <span className="right">일별 · {dateKST(sel.since)} 이후 최고 {num(sel.high, digitsOf(sel))}
-                  {" "}/ 최저 {num(sel.low, digitsOf(sel))}</span>
+                {sel.name} <small>{krwMode ? series?.unit : unitOf(sel)}</small>
+                {series?.convertible && (
+                  <CurrencyToggle krw={krwMode} offHref={fxHref(sel.symbol, false)} onHref={fxHref(sel.symbol, true)} />
+                )}
+                <span className="right">일별 · {dateKST(sel.since)} 이후 최고 {num(hi, chartDigits)}
+                  {" "}/ 최저 {num(lo, chartDigits)}</span>
               </h2>
               {series && series.points.length > 1
-                ? <PriceChart points={series.points} digits={digitsOf(sel)} />
+                ? <PriceChart points={series.points} digits={chartDigits} />
                 : <div className="empty">과거 시세를 모으는 중입니다</div>}
             </section>
             <section className="card pad" aria-label="환율 계산기">

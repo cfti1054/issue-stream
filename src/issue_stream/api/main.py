@@ -227,7 +227,8 @@ def dashboard(sort: str = "importance", s: Session = Depends(db), user: User | N
 
 
 @app.get("/market/prices/{symbol:path}")
-def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
+def prices(symbol: str, days: int = 120, krw: bool = False, s: Session = Depends(db)):
+    """일봉 시세. krw=true 면 달러 표시 항목(미국 주식·국제 원자재)을 그날 원/달러로 곱해 원화로 돌려준다."""
     t = s.get(Ticker, symbol)
     rows = _series(s, symbol, days)
     if t is not None and _needs_fetch(t, rows, days):
@@ -238,10 +239,43 @@ def prices(symbol: str, days: int = 120, s: Session = Depends(db)):
         save_watchlist_prices(n, [symbol])
         s.expire_all()
         rows = _series(s, symbol, days)
-    return {"symbol": symbol, "name": t.name if t else symbol, "market": t.market if t else None,
+    points = [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
+               "volume": r.volume, "change_pct": r.change_pct} for r in rows]
+    usd = is_us_market(t.market) if t else False
+    cmdt = next((c for c in load_yaml("sources.yaml").get("commodities", []) if c["symbol"] == symbol), None)
+    if cmdt:
+        usd = cmdt.get("currency") == "USD"
+    unit = cmdt.get("unit") if cmdt else ("$" if usd else None)
+    krw_unit = (cmdt.get("krw_unit") if cmdt else None) or ("원" if usd else None)
+    if krw and usd and points:
+        points = _to_krw(s, points, float(cmdt.get("krw_per", 1)) if cmdt else 1.0)
+    return {"symbol": symbol, "name": t.name if t else (cmdt["name"] if cmdt else symbol),
+            "market": t.market if t else None,
             "is_stock": t is not None,   # 지수·환율은 종목 마스터에 없다
-            "points": [{"day": r.day, "close": r.close, "open": r.open, "high": r.high, "low": r.low,
-                        "volume": r.volume, "change_pct": r.change_pct} for r in rows]}
+            "convertible": usd,          # 원화 토글을 보여 줄지
+            "currency": "KRW" if krw and usd else ("USD" if usd else None),
+            "unit": krw_unit if krw and usd else unit,
+            "points": points}
+
+
+def _to_krw(s: Session, points: list[dict], per: float) -> list[dict]:
+    """각 날짜의 값 × 그날(없으면 직전 날) 원/달러 ÷ per. 등락률은 원화 기준으로 다시 계산한다."""
+    from bisect import bisect_right
+    fx = s.execute(select(Price.day, Price.close).where(Price.symbol == "USD/KRW",
+                                                      Price.day >= points[0]["day"] - timedelta(days=10))
+                   .order_by(Price.day)).all()
+    if not fx:
+        return points
+    days = [d for d, _ in fx]
+    out, prev = [], None
+    for p in points:
+        i = bisect_right(days, p["day"]) - 1
+        rate = (fx[i][1] if i >= 0 else fx[0][1]) / per
+        q = p | {k: (round(p[k] * rate, 2) if p[k] is not None else None) for k in ("close", "open", "high", "low")}
+        q["change_pct"] = round((q["close"] / prev - 1) * 100, 2) if prev else p["change_pct"]
+        prev = q["close"]
+        out.append(q)
+    return out
 
 
 TROY_OUNCE_G = 31.1034768   # 금·은 1트로이온스 = 31.1g

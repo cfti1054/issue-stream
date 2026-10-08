@@ -373,3 +373,29 @@ def test_fx_board_with_commodities(client):
     g = d["gold"]
     assert abs(g["intl_krw_per_g"] - 4000 * g["usdkrw"] / 31.1034768) < 0.1
     assert (g["premium_pct"] > 0) == (180_000 > g["intl_krw_per_g"])
+
+
+def test_prices_in_krw(client):
+    """원화 토글: 달러 표시 항목은 그날 원/달러를 곱하고, 금은 원/g 으로. 원화 항목은 그대로."""
+    from datetime import date, timedelta
+
+    from issue_stream.db.models import Price
+    from issue_stream.db.ops import upsert
+    from issue_stream.db.session import session_scope
+    d0 = date.today() - timedelta(days=1)
+    with session_scope() as db:
+        for day, close in ((d0, 100.0), (date.today(), 110.0)):
+            upsert(db, Price, dict(symbol="CMDT:WTI", day=day, close=close, source="test"), ["symbol", "day"])
+            upsert(db, Price, dict(symbol="CMDT:GOLD", day=day, close=3110.34768, source="test"), ["symbol", "day"])
+            upsert(db, Price, dict(symbol="USD/KRW", day=day, close=1000.0 if day == d0 else 1100.0, source="test"),
+                   ["symbol", "day"])
+    usd = client.get("/market/prices/CMDT:WTI?days=2").json()
+    assert usd["convertible"] and usd["currency"] == "USD" and usd["unit"] == "$/배럴"
+    krw = client.get("/market/prices/CMDT:WTI?days=2&krw=true").json()
+    assert krw["currency"] == "KRW" and krw["unit"] == "원/배럴"
+    assert [p["close"] for p in krw["points"]] == [100_000.0, 121_000.0]     # 날짜별 환율 적용
+    assert krw["points"][-1]["change_pct"] == 21.0                             # 원화 기준 등락률
+    gold = client.get("/market/prices/CMDT:GOLD?days=1&krw=true").json()
+    assert gold["unit"] == "원/g" and abs(gold["points"][-1]["close"] - 110_000) < 1   # 100온스 → g
+    won = client.get("/market/prices/USD/KRW?days=2&krw=true").json()
+    assert won["convertible"] is False and won["currency"] is None

@@ -255,6 +255,9 @@ export interface PriceSeries {
   name: string;
   market: string | null;
   is_stock: boolean;
+  convertible: boolean;          // 달러 표시 항목(미국 주식·국제 원자재) → 원화 토글 가능
+  currency: "USD" | "KRW" | null;
+  unit: string | null;           // "$", "$/oz", "원/g" …
   points: PricePoint[];
 }
 
@@ -290,8 +293,8 @@ const get = <T,>(path: string) => call<T>("GET", path);
 
 export const api = {
   dashboard: (sort?: "importance" | "recent") => get<Dashboard>(`/dashboard${sort === "recent" ? "?sort=recent" : ""}`),
-  prices: (symbol: string, days = 120) =>
-    get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}`),
+  prices: (symbol: string, days = 120, krw = false) =>
+    get<PriceSeries>(`/market/prices/${encodeURIComponent(symbol)}?days=${days}${krw ? "&krw=true" : ""}`),
   fx: () => get<FxBoard>("/market/fx"),
   issue: (no: number) => get<IssueCard>(`/issues/${no}`),
   signals: (region: "kr" | "us", hours: number) => get<SignalBoard>(`/signals?region=${region}&hours=${hours}`),

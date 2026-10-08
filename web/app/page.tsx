@@ -2,18 +2,19 @@
 import Link from "next/link";
 import { ApiError, api, type Dashboard, type PriceSeries } from "@/lib/api";
 import {
-  INDEX_SYMBOLS, SENTI_LABEL, ago, dateKST, dir, isUS, pct, price, signed, stockChange, stockPrice, timeKST,
+  INDEX_SYMBOLS, SENTI_LABEL, ago, dateKST, dir, isUS, num, pct, price, signed, stockChange, stockPrice, timeKST,
 } from "@/lib/format";
 import { Heatmap, SentimentBar, Sparkline } from "@/components/charts";
 import PriceChart from "@/components/PriceChart";
 import ErrorBox from "@/components/ErrorBox";
+import CurrencyToggle from "@/components/CurrencyToggle";
 import StatusBanner from "@/components/StatusBanner";
 import { HoldToggle, StarButton, WatchSearch } from "@/components/watch";
 import IssueSearch from "@/components/IssueSearch";
 
 export const dynamic = "force-dynamic";
 
-type Q = { ticker?: string; wl?: string; hm?: string; news?: string; nsort?: string };
+type Q = { ticker?: string; wl?: string; hm?: string; news?: string; nsort?: string; krw?: string };
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Q> }) {
   const q = await searchParams;
@@ -61,7 +62,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const chartCode = ticker ?? fallback?.code;
   let series: PriceSeries | null = null;
   if (chartCode) {
-    try { series = await api.prices(chartCode, 120); } catch { series = null; }
+    try { series = await api.prices(chartCode, 120, q.krw === "1"); } catch { series = null; }
   }
   const watched = d.watchlist.find((w) => w.code === chartCode);
   // 관심종목이 아니면 시세 데이터로 헤더를 채운다 (수집 대상이 아니면 시세가 비어 있을 수 있음)
@@ -72,6 +73,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     change: last && prev ? last.close - prev.close : null, change_pct: last?.change_pct ?? null,
   } : undefined);
   const isStock = !!series?.is_stock;   // 지수·환율이면 ☆ 를 보여주지 않는다
+  // 원화 보기(?krw=1): 미국 종목을 그날 원/달러로 환산. 헤더 값도 환산된 시세에서 꺼낸다
+  const krwMode = series?.currency === "KRW";
+  const head = krwMode && last ? {
+    price: `${num(last.close, 0)}원`, change: signed(prev ? last.close - prev.close : null, 0), pct: last.change_pct,
+  } : selected ? {
+    price: stockPrice(selected.close, selected.market), change: stockChange(selected.change, selected.market),
+    pct: selected.change_pct,
+  } : null;
   const now = Date.now();
 
   return (
@@ -213,16 +222,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   {d.user && isStock && <StarButton code={selected.code} name={selected.name} watched={!!watched} />}
                   {selected.name} <small>{selected.code}</small>
                   {!d.user && isStock && <Link className="num-s" href={`/login?next=${encodeURIComponent(`/?ticker=${selected.code}`)}`}>로그인하고 ☆ 관심종목 등록</Link>}
-                  <span className="right">종가 · 일봉</span>
+                  <span className="right" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {series.convertible && (
+                      <CurrencyToggle krw={krwMode} offHref={href({ krw: undefined })} onHref={href({ krw: "1" })} />
+                    )}
+                    종가 · 일봉
+                  </span>
                 </h2>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
-                  <span className="num-l tnum">{stockPrice(selected.close, selected.market)}</span>
-                  <span className={`num-m tnum ${dir(selected.change_pct)}`} style={{ fontWeight: 600 }}>
-                    {stockChange(selected.change, selected.market)} ({pct(selected.change_pct)})
+                  <span className="num-l tnum">{head?.price}</span>
+                  <span className={`num-m tnum ${dir(head?.pct)}`} style={{ fontWeight: 600 }}>
+                    {head?.change} ({pct(head?.pct)})
                   </span>
                   <span className="muted num-s">{selected.day}</span>
                 </div>
-                {series.points.length > 0 ? <PriceChart points={series.points} isIndex={isUS(selected.market)} />
+                {series.points.length > 0 ? <PriceChart points={series.points} isIndex={isUS(selected.market)}
+                    digits={krwMode ? 0 : undefined} />
                   : <div className="empty">시세를 불러오지 못했습니다. 시세 소스가 응답하지 않거나 거래되지 않는 종목입니다.</div>}
               </>
             ) : <div className="empty">{d.user ? "관심종목을 추가하면 가격 차트가 표시됩니다" : "뉴스의 종목 태그를 누르면 가격 차트가 표시됩니다"}</div>}
