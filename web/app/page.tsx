@@ -226,7 +226,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     {series.convertible && (
                       <CurrencyToggle krw={krwMode} offHref={href({ krw: undefined })} onHref={href({ krw: "1" })} />
                     )}
-                    종가 · 일봉
+                    종가
                   </span>
                 </h2>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>

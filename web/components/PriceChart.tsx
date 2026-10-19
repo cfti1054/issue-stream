@@ -5,9 +5,13 @@ import type { PricePoint } from "@/lib/api";
 import { num, pct } from "@/lib/format";
 
 const RANGES = [
-  { key: "1M", label: "1개월", n: 22 },
-  { key: "3M", label: "3개월", n: 66 },
-  { key: "ALL", label: "전체", n: 10_000 },
+  { key: "1M", label: "1개월", months: 1 },
+  { key: "3M", label: "3개월", months: 3 },
+  { key: "6M", label: "6개월", months: 6 },
+] as const;
+const FREQS = [
+  { key: "D", label: "일" },
+  { key: "W", label: "주" },
 ] as const;
 
 const W = 640, H = 240, L = 8, R = 56, T = 10, B = 24;
@@ -16,13 +20,17 @@ export default function PriceChart({ points, isIndex = false, digits: fixedDigit
   points: PricePoint[]; isIndex?: boolean; digits?: number;
 }) {
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("3M");
+  const [freq, setFreq] = useState<(typeof FREQS)[number]["key"]>("D");
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const data = useMemo(() => {
-    const n = RANGES.find((r) => r.key === range)!.n;
-    return points.slice(-n);
-  }, [points, range]);
+    const base = freq === "W" ? toWeekly(points) : points;
+    const last = base.at(-1)?.day;
+    if (!last) return [];
+    const cutoff = shiftMonths(last, -RANGES.find((r) => r.key === range)!.months);
+    return base.filter((p) => p.day >= cutoff);
+  }, [points, range, freq]);
 
   if (data.length < 2) return <div className="empty">가격 데이터가 없습니다</div>;
 
@@ -54,15 +62,22 @@ export default function PriceChart({ points, isIndex = false, digits: fixedDigit
     <div>
       <div className="chart-head">
         <div>
-          <div className="muted num-s">{RANGES.find((r) => r.key === range)!.label} 등락</div>
+          <div className="muted num-s">{RANGES.find((r) => r.key === range)!.label} 등락 · {freq === "W" ? "주봉" : "일봉"}</div>
           <div className={`num-m tnum ${periodPct >= 0 ? "up" : "down"}`} style={{ fontWeight: 700 }}>
             {periodPct >= 0 ? "▲" : "▼"} {pct(periodPct)}
           </div>
         </div>
-        <div className="seg" role="group" aria-label="기간">
-          {RANGES.map((r) => (
-            <button key={r.key} aria-pressed={range === r.key} onClick={() => setRange(r.key)}>{r.label}</button>
-          ))}
+        <div style={{ display: "flex", gap: 8 }}>
+          <div className="seg" role="group" aria-label="봉">
+            {FREQS.map((f) => (
+              <button key={f.key} aria-pressed={freq === f.key} onClick={() => setFreq(f.key)}>{f.label}</button>
+            ))}
+          </div>
+          <div className="seg" role="group" aria-label="기간">
+            {RANGES.map((r) => (
+              <button key={r.key} aria-pressed={range === r.key} onClick={() => setRange(r.key)}>{r.label}</button>
+            ))}
+          </div>
         </div>
       </div>
       <div className="chart-wrap">
@@ -102,6 +117,32 @@ export default function PriceChart({ points, isIndex = false, digits: fixedDigit
       </div>
     </div>
   );
+}
+
+// 일봉을 주(월~일) 단위로 묶어 주의 마지막 거래일 종가를 쓴다. 등락률은 직전 주 종가 대비
+function toWeekly(points: PricePoint[]): PricePoint[] {
+  const lastOfWeek = new Map<string, PricePoint>();
+  for (const p of points) lastOfWeek.set(weekStart(p.day), p);   // 입력이 날짜 오름차순이라 주의 마지막 값이 남는다
+  const out: PricePoint[] = [];
+  for (const p of lastOfWeek.values()) {
+    const prev = out.at(-1);
+    out.push({ ...p, change_pct: prev ? (p.close / prev.close - 1) * 100 : null });
+  }
+  return out;
+}
+
+// 해당 날짜가 속한 주의 월요일 (YYYY-MM-DD)
+function weekStart(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+// 날짜를 달 단위로 이동 (YYYY-MM-DD)
+function shiftMonths(day: string, months: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
 }
 
 function niceTicks(min: number, max: number, count: number): number[] {

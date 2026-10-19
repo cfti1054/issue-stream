@@ -31,3 +31,16 @@ npm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+# Claude Code 개인 설정 (settings.json 은 팀 공용이라 추적)
+.claude/settings.local.json
+# 테스트·타입·린트 캐시
+.mypy_cache/
+.coverage
+htmlcov/
+web/*.tsbuildinfo
+# 로그·백업·시크릿 키
+*.log
+*.bak
+*.pem
+*.key
+*.p12
